@@ -187,7 +187,7 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 		}
 	}
 
-		// MULTI-layer fills (挖槽区域, layer 12)
+		// MULTI-layer fills (layer 12, 挖槽区域)
 		for (const fill of multiFills) {
 			try {
 				const complexPolygon = fill.getState_ComplexPolygon();
@@ -217,7 +217,7 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 			}
 		}
 
-	// Pours
+		// Pours
 	for (const pour of pours) {
 		try {
 			const complexPolygon = (pour as any).getState_ComplexPolygon?.();
@@ -360,11 +360,13 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 				}
 
 				// Footprint fills on MULTI layer (挖槽区域)
+				console.warn('[BC] Footprint regions:', fpRegions.length, '=>', fpRegions.map(r => ({ layer: r.layer, sources: r.sources.length })));
 				for (const fpRegion of fpRegions) {
 					try {
 						const regLayer = fpRegion.layer;
-						if (!isTargetInner && regLayer !== layerId && regLayer !== 12) continue;
-						if (isTargetInner && regLayer !== 1 && regLayer !== 2 && regLayer !== 12) continue;
+						const regIsCopper = regLayer === 1 || regLayer === 2 || (regLayer >= 15 && regLayer <= 44);
+					if (!isTargetInner && regLayer !== layerId && regIsCopper) continue;
+						if (isTargetInner && regIsCopper && regLayer !== 1 && regLayer !== 2) continue;
 						if (!fpRegion.sources || fpRegion.sources.length === 0) continue;
 
 						const world = transformLocalToWorld(fpRegion.x, fpRegion.y, compX, compY, compRotation);
@@ -463,5 +465,6 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 	}
 
 	console.warn('[BC] Total obstacles:', obstacles.length, '(api pads:', apiPadCount, ', failed components:', failedCompIds.size, ')');
+	console.warn('[BC] Region obstacles:', obstacles.filter(o => o.type === 'region').length);
 	return obstacles;
 }
