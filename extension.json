@@ -1,0 +1,46 @@
+{
+	"name": "balance-copper",
+	"uuid": "a0523d91c77344f2b26c95f53f0f84d9",
+	"displayName": "平衡铜工具",
+	"description": "在PCB空白区域自动生成平衡铜图案，提高PCB制造良率",
+	"version": "1.0.0",
+	"publisher": "EasyEDA",
+	"engines": {
+		"eda": "^3.0.0"
+	},
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/easyeda/eext-balance-copper"
+	},
+	"categories": "PCB",
+	"keywords": [
+		"平衡铜",
+		"copper balancing",
+		"copper thieving",
+		"PCB"
+	],
+	"images": {
+		"logo": "./images/logo.png"
+	},
+	"homepage": "",
+	"bugs": "",
+	"activationEvents": {},
+	"entry": "./dist/index",
+	"dependentExtensions": {},
+	"headerMenus": {
+		"pcb": [
+			{
+				"id": "balanceCopper",
+				"title": "平衡铜工具",
+				"menuItems": [
+					{
+						"id": "openPanel",
+						"title": "平衡铜绘制...",
+						"registerFn": "openBalanceCopper"
+					}
+				]
+			}
+		]
+	}
+}
