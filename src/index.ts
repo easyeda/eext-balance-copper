@@ -2,17 +2,24 @@ import type { BalanceCopperConfig, BCCommand, BCStatus, PatternConfig } from './
 import * as extensionConfig from '../extension.json';
 import { getBoardOutline } from './core/boardOutline';
 import { findBlankAreaPoints } from './core/clearanceEngine';
-import { ALL_COPPER_LAYERS, LAYER_TOP_COPPER, SIGNAL_COPPER_LAYERS, SOLDER_MASK_LAYERS } from './core/constants';
+import { ALL_COPPER_LAYERS, LAYER_BOTTOM_COPPER, LAYER_TOP_COPPER, LAYER_TOP_SOLDER_MASK, SIGNAL_COPPER_LAYERS, SOLDER_MASK_LAYERS } from './core/constants';
 import { collectObstacles } from './core/obstacleCollector';
-import { calculateBoundingBox } from './core/polygonUtils';
 import { generateBalanceCopper } from './core/patternGenerator';
+import { calculateBoundingBox } from './core/polygonUtils';
 import { PatternType, TargetLayer } from './types';
 
 const TAG = '[BalanceCopper]';
 const IFRAME_ID = 'balance-copper';
 const POLL_TIMER_ID = '__bc_poll';
 
+// EPCB_LayerStatus enum values
+const LAYER_STATUS_SHOW = 1;
+const LAYER_STATUS_HIDDEN = 2;
+
 const _g: any = (typeof window !== 'undefined') ? window : globalThis;
+
+// Store generated fill primitive IDs for clearing
+_g.__bc_generated_fills = _g.__bc_generated_fills || [];
 
 function msg(key: string): string {
 	return _g.__bc_msg?.[key] ?? key;
@@ -28,13 +35,17 @@ function getPatternBBox(pattern: PatternConfig): { width: number; height: number
 		case PatternType.DOT:
 			return { width: size, height: size };
 		case PatternType.SQUARE:
-			w = size; h = size; break;
+			w = size;
+			h = size;
+			break;
 		case PatternType.RECTANGLE:
 		case PatternType.OVAL:
 		case PatternType.DIAMOND:
 		case PatternType.TRIANGLE:
 		case PatternType.TRAPEZOID:
-			w = size; h = size2; break;
+			w = size;
+			h = size2;
+			break;
 		case PatternType.PENTAGON: {
 			const R = size / 2;
 			w = 2 * R * Math.cos(Math.PI / 10);
@@ -48,7 +59,9 @@ function getPatternBBox(pattern: PatternConfig): { width: number; height: number
 			break;
 		}
 		default:
-			w = size; h = size; break;
+			w = size;
+			h = size;
+			break;
 	}
 
 	const rot = pattern.rotationAngle ?? 0;
@@ -65,7 +78,6 @@ function getPatternBBox(pattern: PatternConfig): { width: number; height: number
 	return { width: w, height: h };
 }
 
-
 function getGridStep(pattern: PatternConfig): { stepX: number; stepY: number } {
 	const { width, height } = getPatternBBox(pattern);
 	const spacing = pattern.patternSpacing;
@@ -78,10 +90,12 @@ async function runAutoDrc(): Promise<void> {
 		const passed = await (eda as any).pcb_Drc.check(true, true, false);
 		if (passed) {
 			eda.sys_Message.showToastMessage(msg('drcPassed'));
-		} else {
+		}
+		else {
 			eda.sys_Message.showToastMessage(msg('drcFailed'));
 		}
-	} catch { /* skip */ }
+	}
+	catch { /* skip */ }
 }
 
 export function activate(_status?: 'onStartupFinished', _arg?: string): void {
@@ -156,11 +170,62 @@ async function pollCommands(): Promise<void> {
 		case 'cancel':
 			_g.__bc_cancelled = true;
 			break;
+		case 'clear':
+			await handleClear();
+			break;
+	}
+}
+
+async function handleClear(): Promise<void> {
+	try {
+		const fills: string[] = _g.__bc_generated_fills || [];
+
+		if (fills.length === 0) {
+			sendStatus({ type: 'done', message: msg('noFillToClear') });
+			eda.sys_Message.showToastMessage(msg('noFillToClear'));
+			return;
+		}
+
+		sendStatus({ type: 'progress', message: msg('clearing'), progress: 10 });
+
+		// Delete fills in batches
+		const BATCH_DELETE_SIZE = 50;
+		let deleted = 0;
+
+		for (let i = 0; i < fills.length; i += BATCH_DELETE_SIZE) {
+			const batch = fills.slice(i, i + BATCH_DELETE_SIZE);
+			try {
+				await (eda as any).pcb_PrimitiveFill.delete(batch);
+				deleted += batch.length;
+			}
+			catch (e) {
+				console.warn(TAG, 'Failed to delete batch:', e);
+			}
+
+			sendStatus({
+				type: 'progress',
+				message: `${msg('clearing')} (${deleted}/${fills.length})`,
+				progress: 10 + Math.round((deleted / fills.length) * 80),
+			});
+		}
+
+		// Clear the stored IDs
+		_g.__bc_generated_fills = [];
+
+		sendStatus({ type: 'done', message: msg('clearDone') });
+		eda.sys_Message.showToastMessage(msg('clearDone'));
+	}
+	catch (e) {
+		const errMsg = e instanceof Error ? e.message : String(e);
+		sendStatus({ type: 'error', message: errMsg });
 	}
 }
 
 async function handleGenerate(config: BalanceCopperConfig): Promise<void> {
 	_g.__bc_cancelled = false;
+
+	// Clear previous generated fills
+	_g.__bc_generated_fills = [];
 
 	try {
 		const layers = await resolveTargetLayers(config.targetLayer);
@@ -169,77 +234,145 @@ async function handleGenerate(config: BalanceCopperConfig): Promise<void> {
 		const { stepX, stepY } = getGridStep(config.pattern);
 		const patternBBox = getPatternBBox(config.pattern);
 
-		for (let li = 0; li < layers.length; li++) {
-			if (_g.__bc_cancelled)
-				break;
+		// Separate signal layers and mask layers
+		const signalLayers = layers.filter(id => SIGNAL_COPPER_LAYERS.includes(id));
+		const maskLayers = layers.filter(id => SOLDER_MASK_LAYERS.includes(id));
 
-			const layerId = layers[li];
-			sendStatus({
-				type: 'progress',
-				message: `正在处理层 ${layerId}...`,
-				progress: Math.round((li / layers.length) * 100),
-			});
+		// Store blank points separately for top and bottom copper for mask layer reuse
+		const copperBlankPointsMap: Map<number, { x: number; y: number }[]> = new Map();
 
-			const { points: boardOutline, slotPolygons } = await getBoardOutline();
-			console.warn(TAG, 'Board outline points:', boardOutline.length, 'Slots:', slotPolygons.length);
+		// Process signal layers in parallel
+		sendStatus({
+			type: 'progress',
+			message: '正在处理信号层...',
+			progress: 5,
+		});
 
-			const obstacles = await collectObstacles(layerId);
+		const signalLayerResults = await Promise.all(
+			signalLayers.map(async (layerId, li) => {
+				if (_g.__bc_cancelled)
+					return { layerId, count: 0, blankPoints: [] };
 
-			// Add slot polygons as obstacles
-			for (const slotPts of slotPolygons) {
+				const { points: boardOutline, slotPolygons } = await getBoardOutline();
+
+				const obstacles = await collectObstacles(layerId);
+
+				// Add slot polygons as obstacles
+				for (const slotPts of slotPolygons) {
 					obstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'region' as const });
+				}
+
+				const layerOffset = config.pattern.layerStagger && (li % 2 === 1)
+					? { x: stepX / 2, y: stepY / 2 }
+					: undefined;
+
+				const blankPoints = await findBlankAreaPoints(
+					boardOutline,
+					obstacles,
+					stepX,
+					config.pattern.rotationAngle,
+					undefined,
+					config.pattern.stagger,
+					layerOffset,
+					stepY,
+					patternBBox.width,
+					patternBBox.height,
+				);
+
+				// Store blank points from top/bottom copper for mask layer reuse
+				if (layerId === LAYER_TOP_COPPER || layerId === LAYER_BOTTOM_COPPER) {
+					copperBlankPointsMap.set(layerId, [...blankPoints]);
+				}
+
+				if (blankPoints.length === 0) {
+					return { layerId, count: 0, blankPoints };
+				}
+
+				const count = await generateBalanceCopper(layerId, blankPoints, config.pattern);
+				console.warn(TAG, `Layer ${layerId} created count:`, count);
+
+				return { layerId, count, blankPoints };
+			}),
+		);
+
+		// Report results
+		for (const result of signalLayerResults) {
+			if (result.count > 0) {
+				console.warn(TAG, `Layer ${result.layerId}: created ${result.count} patterns`);
 			}
-			console.warn(TAG, 'Obstacles count:', obstacles.length);
-
-			const layerOffset = config.pattern.layerStagger && (li % 2 === 1)
-				? { x: stepX / 2, y: stepY / 2 }
-				: undefined;
-
-			const blankPoints = await findBlankAreaPoints(
-				boardOutline,
-				obstacles,
-				stepX,
-				config.pattern.rotationAngle,
-				undefined,
-				config.pattern.stagger,
-				layerOffset,
-				stepY,
-				patternBBox.width,
-				patternBBox.height,
-			);
-			console.warn(TAG, 'Blank points:', blankPoints.length);
-
-			if (blankPoints.length === 0) {
-				sendStatus({
-					type: 'progress',
-					message: `层 ${layerId}: 无空白区域可填充`,
-					progress: Math.round(((li + 1) / layers.length) * 100),
-				});
-				continue;
-			}
-
-			const count = await generateBalanceCopper(layerId, blankPoints, config.pattern);
-			console.warn(TAG, 'Created count:', count);
-
-			if (_g.__bc_cancelled) {
-				sendStatus({ type: 'done', message: `已停止。层 ${layerId}: 创建了 ${count} 个图案` });
-				eda.sys_Message.showToastMessage(msg('stopped'));
-				return;
-			}
-
-			sendStatus({
-				type: 'progress',
-				message: `层 ${layerId}: 创建了 ${count} 个图案`,
-				progress: Math.round(((li + 1) / layers.length) * 100),
-			});
 		}
 
 		if (_g.__bc_cancelled) {
 			sendStatus({ type: 'done', message: '已停止生成' });
 			eda.sys_Message.showToastMessage(msg('stopped'));
-		} else {
+			return;
+		}
+
+		sendStatus({
+			type: 'progress',
+			message: '信号层处理完成',
+			progress: 70,
+		});
+
+		// Process mask layers in parallel
+		if (maskLayers.length > 0) {
+			sendStatus({
+				type: 'progress',
+				message: '正在处理阻焊层...',
+				progress: 75,
+			});
+
+			await Promise.all(
+				maskLayers.map(async (maskLayerId) => {
+					if (_g.__bc_cancelled)
+						return;
+
+					// Map mask layer to corresponding copper layer
+					const copperLayerId = maskLayerId === LAYER_TOP_SOLDER_MASK ? LAYER_TOP_COPPER : LAYER_BOTTOM_COPPER;
+
+					// Get blank points from corresponding copper layer
+					let maskBlankPoints = copperBlankPointsMap.get(copperLayerId);
+
+					// If not stored, recalculate
+					if (!maskBlankPoints || maskBlankPoints.length === 0) {
+						const { points: boardOutline, slotPolygons } = await getBoardOutline();
+						const obstacles = await collectObstacles(copperLayerId);
+
+						for (const slotPts of slotPolygons) {
+							obstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'region' as const });
+						}
+
+						// Mask layer should NOT have stagger offset - should overlap with copper
+						maskBlankPoints = await findBlankAreaPoints(
+							boardOutline,
+							obstacles,
+							stepX,
+							config.pattern.rotationAngle,
+							undefined,
+							config.pattern.stagger,
+							undefined,
+							stepY,
+							patternBBox.width,
+							patternBBox.height,
+						);
+					}
+
+					if (!maskBlankPoints || maskBlankPoints.length === 0)
+						return;
+
+					const count = await generateBalanceCopper(maskLayerId, maskBlankPoints, config.pattern);
+					console.warn(TAG, `Mask layer ${maskLayerId} created count:`, count);
+				}),
+			);
+		}
+
+		if (_g.__bc_cancelled) {
+			sendStatus({ type: 'done', message: '已停止生成' });
+			eda.sys_Message.showToastMessage(msg('stopped'));
+		}
+		else {
 			if (config.autoDrc) {
-				sendStatus({ type: 'progress', message: msg('genDone') + ' - ' + msg('drcRunning'), progress: 98 });
+				sendStatus({ type: 'progress', message: `${msg('genDone')} - ${msg('drcRunning')}`, progress: 98 });
 				await runAutoDrc();
 			}
 			sendStatus({ type: 'done', message: msg('genDone') });
@@ -247,13 +380,16 @@ async function handleGenerate(config: BalanceCopperConfig): Promise<void> {
 		}
 	}
 	catch (e) {
-		const msg = e instanceof Error ? e.message : String(e);
-		sendStatus({ type: 'error', message: msg });
+		const errMsg = e instanceof Error ? e.message : String(e);
+		sendStatus({ type: 'error', message: errMsg });
 	}
 }
 
 async function handleAreaGenerate(config: BalanceCopperConfig): Promise<void> {
 	_g.__bc_cancelled = false;
+
+	// Clear previous generated fills
+	_g.__bc_generated_fills = [];
 
 	try {
 		eda.sys_Message.showToastMessage(msg('clickFirst'));
@@ -272,71 +408,136 @@ async function handleAreaGenerate(config: BalanceCopperConfig): Promise<void> {
 		const { stepX, stepY } = getGridStep(config.pattern);
 		const patternBBox = getPatternBBox(config.pattern);
 
-		for (let li = 0; li < layers.length; li++) {
-			if (_g.__bc_cancelled)
-				break;
+		// Separate signal layers and mask layers
+		const signalLayers = layers.filter(id => SIGNAL_COPPER_LAYERS.includes(id));
+		const maskLayers = layers.filter(id => SOLDER_MASK_LAYERS.includes(id));
 
-			const layerId = layers[li];
-			sendStatus({
-				type: 'progress',
-				message: `正在处理层 ${layerId}...`,
-				progress: Math.round((li / layers.length) * 100),
-			});
+		// Store blank points separately for top and bottom copper for mask layer reuse
+		const copperBlankPointsMap: Map<number, { x: number; y: number }[]> = new Map();
 
-			const { points: boardOutline, slotPolygons } = await getBoardOutline();
-			const obstacles = await collectObstacles(layerId);
+		// Process signal layers in parallel
+		sendStatus({
+			type: 'progress',
+			message: '正在处理信号层...',
+			progress: 10,
+		});
 
-			for (const slotPts of slotPolygons) {
+		await Promise.all(
+			signalLayers.map(async (layerId, li) => {
+				if (_g.__bc_cancelled)
+					return { layerId, count: 0, blankPoints: [] };
+
+				const { points: boardOutline, slotPolygons } = await getBoardOutline();
+				const obstacles = await collectObstacles(layerId);
+
+				for (const slotPts of slotPolygons) {
 					obstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'region' as const });
-			}
+				}
 
-			const layerOffset = config.pattern.layerStagger && (li % 2 === 1)
-				? { x: stepX / 2, y: stepY / 2 }
-				: undefined;
+				const layerOffset = config.pattern.layerStagger && (li % 2 === 1)
+					? { x: stepX / 2, y: stepY / 2 }
+					: undefined;
 
-			const blankPoints = await findBlankAreaPoints(
-				boardOutline,
-				obstacles,
-				stepX,
-				config.pattern.rotationAngle,
-				selectionBounds,
-				config.pattern.stagger,
-				layerOffset,
-				stepY,
-				patternBBox.width,
-				patternBBox.height,
-			);
+				const blankPoints = await findBlankAreaPoints(
+					boardOutline,
+					obstacles,
+					stepX,
+					config.pattern.rotationAngle,
+					selectionBounds,
+					config.pattern.stagger,
+					layerOffset,
+					stepY,
+					patternBBox.width,
+					patternBBox.height,
+				);
 
-			if (blankPoints.length === 0) {
-				sendStatus({
-					type: 'progress',
-					message: `层 ${layerId}: 无空白区域可填充`,
-					progress: Math.round(((li + 1) / layers.length) * 100),
-				});
-				continue;
-			}
+				// Store blank points from top/bottom copper for mask layer reuse
+				if (layerId === LAYER_TOP_COPPER || layerId === LAYER_BOTTOM_COPPER) {
+					copperBlankPointsMap.set(layerId, [...blankPoints]);
+				}
 
-			const count = await generateBalanceCopper(layerId, blankPoints, config.pattern);
+				if (blankPoints.length === 0) {
+					return { layerId, count: 0, blankPoints };
+				}
 
-			if (_g.__bc_cancelled) {
-				sendStatus({ type: 'done', message: `已停止。层 ${layerId}: 创建了 ${count} 个图案` });
-				eda.sys_Message.showToastMessage(msg('stopped'));
-				return;
-			}
+				const count = await generateBalanceCopper(layerId, blankPoints, config.pattern);
+				console.warn(TAG, `Layer ${layerId} created count:`, count);
 
+				return { layerId, count, blankPoints };
+			}),
+		);
+
+		if (_g.__bc_cancelled) {
+			sendStatus({ type: 'done', message: '已停止生成' });
+			eda.sys_Message.showToastMessage(msg('stopped'));
+			return;
+		}
+
+		sendStatus({
+			type: 'progress',
+			message: '信号层处理完成',
+			progress: 70,
+		});
+
+		// Process mask layers in parallel
+		if (maskLayers.length > 0) {
 			sendStatus({
 				type: 'progress',
-				message: `层 ${layerId}: 创建了 ${count} 个图案`,
-				progress: Math.round(((li + 1) / layers.length) * 100),
+				message: '正在处理阻焊层...',
+				progress: 75,
 			});
+
+			await Promise.all(
+				maskLayers.map(async (maskLayerId) => {
+					if (_g.__bc_cancelled)
+						return;
+
+					// Map mask layer to corresponding copper layer
+					const copperLayerId = maskLayerId === LAYER_TOP_SOLDER_MASK ? LAYER_TOP_COPPER : LAYER_BOTTOM_COPPER;
+
+					// Get blank points from corresponding copper layer
+					let maskBlankPoints = copperBlankPointsMap.get(copperLayerId);
+
+					// If not stored, recalculate
+					if (!maskBlankPoints || maskBlankPoints.length === 0) {
+						const { points: boardOutline, slotPolygons } = await getBoardOutline();
+						const obstacles = await collectObstacles(copperLayerId);
+
+						for (const slotPts of slotPolygons) {
+							obstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'region' as const });
+						}
+
+						// Mask layer should NOT have stagger offset - should overlap with copper
+						maskBlankPoints = await findBlankAreaPoints(
+							boardOutline,
+							obstacles,
+							stepX,
+							config.pattern.rotationAngle,
+							selectionBounds,
+							config.pattern.stagger,
+							undefined,
+							stepY,
+							patternBBox.width,
+							patternBBox.height,
+						);
+					}
+
+					if (!maskBlankPoints || maskBlankPoints.length === 0)
+						return;
+
+					const count = await generateBalanceCopper(maskLayerId, maskBlankPoints, config.pattern);
+					console.warn(TAG, `Mask layer ${maskLayerId} created count:`, count);
+				}),
+			);
 		}
 
 		if (_g.__bc_cancelled) {
 			sendStatus({ type: 'done', message: '已停止生成' });
 			eda.sys_Message.showToastMessage(msg('stopped'));
-		} else {
+		}
+		else {
 			if (config.autoDrc) {
-				sendStatus({ type: 'progress', message: msg('areaDone') + ' - ' + msg('drcRunning'), progress: 98 });
+				sendStatus({ type: 'progress', message: `${msg('areaDone')} - ${msg('drcRunning')}`, progress: 98 });
 				await runAutoDrc();
 			}
 			sendStatus({ type: 'done', message: msg('areaDone') });
@@ -344,8 +545,8 @@ async function handleAreaGenerate(config: BalanceCopperConfig): Promise<void> {
 		}
 	}
 	catch (e) {
-		const msg = e instanceof Error ? e.message : String(e);
-		sendStatus({ type: 'error', message: msg });
+		const errMsg = e instanceof Error ? e.message : String(e);
+		sendStatus({ type: 'error', message: errMsg });
 	}
 }
 
@@ -359,7 +560,8 @@ async function pollForSelection(timeoutMs: number): Promise<{ minX: number; minY
 	try {
 		(eda as any).pcb_Event.addMouseEventListener(listenerId, 'selected', async (_eventType: string, _props: any) => {
 			const pos = await (eda as any).pcb_SelectControl.getCurrentMousePosition();
-			if (!pos || pos.x == null) return;
+			if (!pos || pos.x == null)
+				return;
 
 			if (!hasFirst) {
 				firstPoint = { x: pos.x, y: pos.y };
@@ -367,7 +569,8 @@ async function pollForSelection(timeoutMs: number): Promise<{ minX: number; minY
 				eda.sys_Message.showToastMessage(msg('clickSecond'));
 			}
 		});
-	} catch {
+	}
+	catch {
 		// Fallback: polling approach
 	}
 
@@ -376,14 +579,18 @@ async function pollForSelection(timeoutMs: number): Promise<{ minX: number; minY
 			const elapsed = Date.now() - startTime;
 			if (elapsed > timeoutMs || _g.__bc_cancelled) {
 				clearInterval(timerId);
-				try { (eda as any).pcb_Event.removeEventListener(listenerId); } catch {}
+				try {
+					(eda as any).pcb_Event.removeEventListener(listenerId);
+				}
+				catch {}
 				resolve(undefined);
 				return;
 			}
 
 			if (hasFirst) {
 				const pos = await (eda as any).pcb_SelectControl.getCurrentMousePosition();
-				if (!pos || pos.x == null) return;
+				if (!pos || pos.x == null)
+					return;
 
 				// Detect second click: position changed significantly from first
 				const dx = Math.abs(pos.x - firstPoint!.x);
@@ -394,14 +601,16 @@ async function pollForSelection(timeoutMs: number): Promise<{ minX: number; minY
 					const pos2 = await (eda as any).pcb_SelectControl.getCurrentMousePosition();
 					if (pos2 && Math.abs(pos2.x - pos.x) < 5 && Math.abs(pos2.y - pos.y) < 5) {
 						clearInterval(timerId);
-						try { (eda as any).pcb_Event.removeEventListener(listenerId); } catch {}
+						try {
+							(eda as any).pcb_Event.removeEventListener(listenerId);
+						}
+						catch {}
 						resolve({
 							minX: Math.min(firstPoint!.x, pos2.x),
 							minY: Math.min(firstPoint!.y, pos2.y),
 							maxX: Math.max(firstPoint!.x, pos2.x),
 							maxY: Math.max(firstPoint!.y, pos2.y),
 						});
-						return;
 					}
 				}
 			}
@@ -416,11 +625,14 @@ async function resolveTargetLayers(target: TargetLayer): Promise<number[]> {
 			let layerId: number;
 			if (typeof raw === 'number') {
 				layerId = raw;
-			} else if (raw && typeof raw === 'object' && raw.id != null) {
+			}
+			else if (raw && typeof raw === 'object' && raw.id != null) {
 				layerId = Number(raw.id);
-			} else if (raw != null) {
+			}
+			else if (raw != null) {
 				layerId = Number(raw);
-			} else {
+			}
+			else {
 				layerId = LAYER_TOP_COPPER;
 			}
 			if (!Number.isFinite(layerId) || !ALL_COPPER_LAYERS.includes(layerId)) {
@@ -429,13 +641,39 @@ async function resolveTargetLayers(target: TargetLayer): Promise<number[]> {
 			return [layerId];
 		}
 		case TargetLayer.ALL_SIGNAL:
-			return [...SIGNAL_COPPER_LAYERS];
+			return await getActiveSignalLayers();
 		case TargetLayer.ALL_MASK:
 			return [...SOLDER_MASK_LAYERS];
 		case TargetLayer.ALL_SIGNAL_AND_MASK:
-			return [...SIGNAL_COPPER_LAYERS, ...SOLDER_MASK_LAYERS];
+			return [...await getActiveSignalLayers(), ...SOLDER_MASK_LAYERS];
 		default:
 			return [LAYER_TOP_COPPER];
+	}
+}
+
+async function getActiveSignalLayers(): Promise<number[]> {
+	try {
+		const allLayers = await (eda as any).pcb_Layer.getAllLayers();
+		if (!allLayers || !Array.isArray(allLayers)) {
+			return [...SIGNAL_COPPER_LAYERS];
+		}
+
+		// Filter layers that are in use (SHOW or HIDDEN status)
+		const activeLayers = allLayers
+			.filter((layer: any) => {
+				const layerId = layer.id;
+				const status = layer.layerStatus;
+				// Check if it's a signal layer and is in use
+				return SIGNAL_COPPER_LAYERS.includes(layerId)
+					&& (status === LAYER_STATUS_SHOW || status === LAYER_STATUS_HIDDEN);
+			})
+			.map((layer: any) => layer.id);
+
+		return activeLayers.length > 0 ? activeLayers : [...SIGNAL_COPPER_LAYERS];
+	}
+	catch (e) {
+		console.warn(TAG, 'Failed to get active layers:', e);
+		return [...SIGNAL_COPPER_LAYERS];
 	}
 }
 

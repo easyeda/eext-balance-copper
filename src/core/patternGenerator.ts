@@ -6,6 +6,11 @@ import { rotatePoint } from './polygonUtils';
 const _g: any = (typeof window !== 'undefined') ? window : globalThis;
 const BATCH_SIZE = 50;
 
+// Initialize generated fills array if not exists
+if (!_g.__bc_generated_fills) {
+	_g.__bc_generated_fills = [];
+}
+
 export async function generateBalanceCopper(
 	layerId: number,
 	points: Point[],
@@ -49,9 +54,15 @@ async function createFill(layerId: number, sourceArray: (number | string)[]): Pr
 		const fill = await (eda as any).pcb_PrimitiveFill.create(layerId, polygon, '', 0, 0.2, false);
 		if (fill) {
 			await fill.done();
+			// Store the primitive ID for later clearing
+			const primitiveId = fill.getState_PrimitiveId();
+			if (primitiveId && _g.__bc_generated_fills) {
+				_g.__bc_generated_fills.push(primitiveId);
+			}
 		}
 		return fill;
-	} catch (e) {
+	}
+	catch (e) {
 		console.warn('[BC] fill error:', e, 'src:', JSON.stringify(sourceArray.slice(0, 9)));
 		return undefined;
 	}
@@ -80,19 +91,22 @@ async function generateDotPattern(
 	let created = 0;
 
 	for (let i = 0; i < points.length; i += BATCH_SIZE) {
-		if (isCancelled()) break;
+		if (isCancelled())
+			break;
 		const batch = points.slice(i, i + BATCH_SIZE);
 
 		for (const pt of batch) {
 			try {
 				const source = ['CIRCLE', pt.x, pt.y, radius] as (number | string)[];
 				const fill = await createFill(layerId, source);
-				if (fill) created++;
+				if (fill)
+					created++;
 			}
 			catch { /* skip */ }
 		}
 
-		if (i + BATCH_SIZE < points.length) await yieldToUI();
+		if (i + BATCH_SIZE < points.length)
+			await yieldToUI();
 	}
 
 	return created;
@@ -107,7 +121,8 @@ async function generateSquarePattern(
 	let created = 0;
 
 	for (let i = 0; i < points.length; i += BATCH_SIZE) {
-		if (isCancelled()) break;
+		if (isCancelled())
+			break;
 		const batch = points.slice(i, i + BATCH_SIZE);
 
 		for (const pt of batch) {
@@ -115,12 +130,14 @@ async function generateSquarePattern(
 				const hw = size / 2;
 				const source = ['R', pt.x - hw, pt.y - hw, size, size, rotation, 0] as (number | string)[];
 				const fill = await createFill(layerId, source);
-				if (fill) created++;
+				if (fill)
+					created++;
 			}
 			catch { /* skip */ }
 		}
 
-		if (i + BATCH_SIZE < points.length) await yieldToUI();
+		if (i + BATCH_SIZE < points.length)
+			await yieldToUI();
 	}
 
 	return created;
@@ -136,7 +153,8 @@ async function generateRectanglePattern(
 	let created = 0;
 
 	for (let i = 0; i < points.length; i += BATCH_SIZE) {
-		if (isCancelled()) break;
+		if (isCancelled())
+			break;
 		const batch = points.slice(i, i + BATCH_SIZE);
 
 		for (const pt of batch) {
@@ -145,12 +163,14 @@ async function generateRectanglePattern(
 				const hh = height / 2;
 				const source = ['R', pt.x - hw, pt.y - hh, width, height, rotation, 0] as (number | string)[];
 				const fill = await createFill(layerId, source);
-				if (fill) created++;
+				if (fill)
+					created++;
 			}
 			catch { /* skip */ }
 		}
 
-		if (i + BATCH_SIZE < points.length) await yieldToUI();
+		if (i + BATCH_SIZE < points.length)
+			await yieldToUI();
 	}
 
 	return created;
@@ -174,19 +194,22 @@ async function generateDiamondPattern(
 	];
 
 	for (let i = 0; i < points.length; i += BATCH_SIZE) {
-		if (isCancelled()) break;
+		if (isCancelled())
+			break;
 		const batch = points.slice(i, i + BATCH_SIZE);
 
 		for (const pt of batch) {
 			try {
 				const source = buildLSource(pt.x, pt.y, verts, rotation);
 				const fill = await createFill(layerId, source);
-				if (fill) created++;
+				if (fill)
+					created++;
 			}
 			catch { /* skip */ }
 		}
 
-		if (i + BATCH_SIZE < points.length) await yieldToUI();
+		if (i + BATCH_SIZE < points.length)
+			await yieldToUI();
 	}
 
 	return created;
@@ -205,19 +228,22 @@ async function generateOvalPattern(
 	const cornerRadius = Math.min(hw, hh);
 
 	for (let i = 0; i < points.length; i += BATCH_SIZE) {
-		if (isCancelled()) break;
+		if (isCancelled())
+			break;
 		const batch = points.slice(i, i + BATCH_SIZE);
 
 		for (const pt of batch) {
 			try {
 				const source = ['R', pt.x - hw, pt.y - hh, width, height, rotation, cornerRadius] as (number | string)[];
 				const fill = await createFill(layerId, source);
-				if (fill) created++;
+				if (fill)
+					created++;
 			}
 			catch { /* skip */ }
 		}
 
-		if (i + BATCH_SIZE < points.length) await yieldToUI();
+		if (i + BATCH_SIZE < points.length)
+			await yieldToUI();
 	}
 
 	return created;
@@ -240,19 +266,22 @@ async function generateTrianglePattern(
 	];
 
 	for (let i = 0; i < points.length; i += BATCH_SIZE) {
-		if (isCancelled()) break;
+		if (isCancelled())
+			break;
 		const batch = points.slice(i, i + BATCH_SIZE);
 
 		for (const pt of batch) {
 			try {
 				const source = buildLSource(pt.x, pt.y, verts, rotation);
 				const fill = await createFill(layerId, source);
-				if (fill) created++;
+				if (fill)
+					created++;
 			}
 			catch { /* skip */ }
 		}
 
-		if (i + BATCH_SIZE < points.length) await yieldToUI();
+		if (i + BATCH_SIZE < points.length)
+			await yieldToUI();
 	}
 
 	return created;
@@ -273,19 +302,22 @@ async function generatePentagonPattern(
 	}
 
 	for (let i = 0; i < points.length; i += BATCH_SIZE) {
-		if (isCancelled()) break;
+		if (isCancelled())
+			break;
 		const batch = points.slice(i, i + BATCH_SIZE);
 
 		for (const pt of batch) {
 			try {
 				const source = buildLSource(pt.x, pt.y, verts, rotation);
 				const fill = await createFill(layerId, source);
-				if (fill) created++;
+				if (fill)
+					created++;
 			}
 			catch { /* skip */ }
 		}
 
-		if (i + BATCH_SIZE < points.length) await yieldToUI();
+		if (i + BATCH_SIZE < points.length)
+			await yieldToUI();
 	}
 
 	return created;
@@ -306,19 +338,22 @@ async function generateHexagonPattern(
 	}
 
 	for (let i = 0; i < points.length; i += BATCH_SIZE) {
-		if (isCancelled()) break;
+		if (isCancelled())
+			break;
 		const batch = points.slice(i, i + BATCH_SIZE);
 
 		for (const pt of batch) {
 			try {
 				const source = buildLSource(pt.x, pt.y, verts, rotation);
 				const fill = await createFill(layerId, source);
-				if (fill) created++;
+				if (fill)
+					created++;
 			}
 			catch { /* skip */ }
 		}
 
-		if (i + BATCH_SIZE < points.length) await yieldToUI();
+		if (i + BATCH_SIZE < points.length)
+			await yieldToUI();
 	}
 
 	return created;
@@ -344,19 +379,22 @@ async function generateTrapezoidPattern(
 	];
 
 	for (let i = 0; i < points.length; i += BATCH_SIZE) {
-		if (isCancelled()) break;
+		if (isCancelled())
+			break;
 		const batch = points.slice(i, i + BATCH_SIZE);
 
 		for (const pt of batch) {
 			try {
 				const source = buildLSource(pt.x, pt.y, verts, rotation);
 				const fill = await createFill(layerId, source);
-				if (fill) created++;
+				if (fill)
+					created++;
 			}
 			catch { /* skip */ }
 		}
 
-		if (i + BATCH_SIZE < points.length) await yieldToUI();
+		if (i + BATCH_SIZE < points.length)
+			await yieldToUI();
 	}
 
 	return created;

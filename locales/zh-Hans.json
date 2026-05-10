@@ -34,6 +34,7 @@
 	"All Signal + Mask Layers": "信号层+阻焊层",
 	"Area Generate": "绘制区域生成",
 	"Generate": "一键生成",
+	"Clear All": "一键清除",
 	"Stop": "停止生成",
 	"Generating...": "生成中...",
 	"Done": "完成",
@@ -45,5 +46,8 @@
 	"Processing layer": "正在处理层",
 	"Created patterns": "创建了图案",
 	"Please select a PCB document": "请在PCB文档中使用此功能",
-	"Stopped": "已停止生成"
+	"Stopped": "已停止生成",
+	"Clearing...": "正在清除...",
+	"All generated balance copper cleared": "已清除所有生成的平衡铜",
+	"No balance copper to clear": "没有可清除的平衡铜"
 }

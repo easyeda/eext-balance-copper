@@ -35,7 +35,7 @@ export interface BalanceCopperConfig {
 }
 
 export interface BCCommand {
-	type: 'generate' | 'cancel' | 'areaGenerate';
+	type: 'generate' | 'cancel' | 'areaGenerate' | 'clear';
 	config?: BalanceCopperConfig;
 }
 

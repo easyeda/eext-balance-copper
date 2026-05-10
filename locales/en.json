@@ -34,6 +34,7 @@
 	"All Signal + Mask Layers": "Signal + Mask Layers",
 	"Area Generate": "Area Generate",
 	"Generate": "Generate",
+	"Clear All": "Clear All",
 	"Stop": "Stop",
 	"Generating...": "Generating...",
 	"Done": "Done",
@@ -45,5 +46,8 @@
 	"Processing layer": "Processing layer",
 	"Created patterns": "Created patterns",
 	"Please select a PCB document": "Please select a PCB document",
-	"Stopped": "Generation stopped"
+	"Stopped": "Generation stopped",
+	"Clearing...": "Clearing...",
+	"All generated balance copper cleared": "All generated balance copper cleared",
+	"No balance copper to clear": "No balance copper to clear"
 }

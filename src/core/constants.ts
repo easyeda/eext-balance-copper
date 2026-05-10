@@ -6,9 +6,12 @@ export const LAYER_MULTI = 12;
 export const MIL_TO_MM = 0.0254;
 export const MM_TO_MIL = 39.3701;
 
+export const LAYER_TOP_SOLDER_MASK = 5;
+export const LAYER_BOTTOM_SOLDER_MASK = 6;
+
 export const SOLDER_MASK_LAYERS: number[] = [
-	5,  // top solder mask
-	9,  // bottom solder mask
+	LAYER_TOP_SOLDER_MASK, // top solder mask
+	LAYER_BOTTOM_SOLDER_MASK, // bottom solder mask
 ];
 
 export const ALL_COPPER_LAYERS: number[] = [
