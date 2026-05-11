@@ -107,7 +107,8 @@ export function sourceArrayToPoints(sourceArray: (number | string)[]): Point[] {
 				const cry = ry - h / 2;
 				if (cr > 0) {
 					points.push(...createRoundedRectPolygon(crx, cry, w, h, cr, rot));
-				} else {
+				}
+				else {
 					points.push(...createRectanglePolygon(crx, cry, w, h, rot));
 				}
 				i += 7;
@@ -274,7 +275,6 @@ export function createRectanglePolygon(cx: number, cy: number, w: number, h: num
 	}));
 }
 
-
 export function createRoundedRectPolygon(cx: number, cy: number, w: number, h: number, cornerRadius: number, rotation: number = 0): Point[] {
 	const hw = w / 2;
 	const hh = h / 2;
@@ -303,7 +303,8 @@ export function createRoundedRectPolygon(cx: number, cy: number, w: number, h: n
 		pts.push({ x: -hw + r + r * Math.cos(a), y: hh - r + r * Math.sin(a) });
 	}
 
-	if (rotation === 0) return pts.map(p => ({ x: cx + p.x, y: cy + p.y }));
+	if (rotation === 0)
+		return pts.map(p => ({ x: cx + p.x, y: cy + p.y }));
 	const rad = (rotation * Math.PI) / 180;
 	const cos = Math.cos(rad);
 	const sin = Math.sin(rad);
@@ -351,8 +352,6 @@ export function createOvalPolygon(cx: number, cy: number, w: number, h: number, 
 	}));
 }
 
-
-
 export function createRegularPolygonPolygon(cx: number, cy: number, diameter: number, sides: number, rotation: number): Point[] {
 	const radius = diameter / 2;
 	const n = Math.max(3, Math.round(sides));
@@ -373,32 +372,38 @@ export function createRegularPolygonPolygon(cx: number, cy: number, diameter: nu
 }
 
 export function createPadPolygon(padShape: (number | string)[], x: number, y: number, rotationDeg: number): Point[] | null {
-	if (!padShape || padShape.length < 2) return null;
+	if (!padShape || padShape.length < 2)
+		return null;
 	const shapeType = padShape[0];
 	switch (shapeType) {
 		case 'ELLIPSE': {
 			const w = padShape[1] as number;
 			const h = padShape[2] as number;
-			if (w <= 0 || h <= 0) return null;
-			if (Math.abs(w - h) < 1) return createCirclePolygon(x, y, w / 2, 24);
+			if (w <= 0 || h <= 0)
+				return null;
+			if (Math.abs(w - h) < 1)
+				return createCirclePolygon(x, y, w / 2, 24);
 			return createOvalPolygon(x, y, w, h, rotationDeg);
 		}
 		case 'OVAL': {
 			const w = padShape[1] as number;
 			const h = padShape[2] as number;
-			if (w <= 0 || h <= 0) return null;
+			if (w <= 0 || h <= 0)
+				return null;
 			return createOvalPolygon(x, y, w, h, rotationDeg);
 		}
 		case 'RECT': {
 			const w = padShape[1] as number;
 			const h = padShape[2] as number;
-			if (w <= 0 || h <= 0) return null;
+			if (w <= 0 || h <= 0)
+				return null;
 			return createRectanglePolygon(x, y, w, h, rotationDeg);
 		}
 		case 'NGON': {
 			const diameter = padShape[1] as number;
 			const sides = padShape[2] as number;
-			if (diameter <= 0 || sides < 3) return null;
+			if (diameter <= 0 || sides < 3)
+				return null;
 			return createRegularPolygonPolygon(x, y, diameter, sides, rotationDeg);
 		}
 		case 'POLYGON': {
@@ -407,12 +412,15 @@ export function createPadPolygon(padShape: (number | string)[], x: number, y: nu
 			let srcArray: (number | string)[];
 			if (Array.isArray(rawPoly) && rawPoly.length > 0 && Array.isArray(rawPoly[0])) {
 				srcArray = (rawPoly as (number | string)[][])[0];
-			} else {
+			}
+			else {
 				srcArray = rawPoly as (number | string)[];
 			}
-			if (!srcArray || srcArray.length < 4) return null;
+			if (!srcArray || srcArray.length < 4)
+				return null;
 			const pts = sourceArrayToPoints(srcArray);
-			if (pts.length < 3) return null;
+			if (pts.length < 3)
+				return null;
 			// Apply rotation and translation (same as other shape types)
 			if (Math.abs(rotationDeg) < 0.01) {
 				return pts.map(p => ({ x: x + p.x, y: y + p.y }));
@@ -472,8 +480,12 @@ export function offsetPolygonInward(points: Point[], offset: number): Point[] {
 
 	// Circle detection — use radial shrink for accuracy
 	if (points.length >= 16) {
-		let cx = 0; let cy = 0;
-		for (const p of points) { cx += p.x; cy += p.y; }
+		let cx = 0;
+		let cy = 0;
+		for (const p of points) {
+			cx += p.x;
+			cy += p.y;
+		}
 		cx /= points.length;
 		cy /= points.length;
 		const radii = points.map(p => Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2));
@@ -482,12 +494,14 @@ export function offsetPolygonInward(points: Point[], offset: number): Point[] {
 			const maxDev = Math.max(...radii.map(r => Math.abs(r - avgRadius)));
 			if (maxDev / avgRadius < 0.02) {
 				const newRadius = avgRadius - offset;
-				if (newRadius <= 0) return [];
-				return points.map(p => {
+				if (newRadius <= 0)
+					return [];
+				return points.map((p) => {
 					const dx = p.x - cx;
 					const dy = p.y - cy;
 					const dist = Math.sqrt(dx * dx + dy * dy);
-					if (dist < 1e-6) return { x: cx, y: cy };
+					if (dist < 1e-6)
+						return { x: cx, y: cy };
 					const scale = newRadius / dist;
 					return { x: cx + dx * scale, y: cy + dy * scale };
 				});
@@ -512,12 +526,18 @@ export function offsetPolygonInward(points: Point[], offset: number): Point[] {
 		const dx1 = curr.x - prev.x;
 		const dy1 = curr.y - prev.y;
 		const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-		if (len1 < 1e-6) { result.push(curr); continue; }
+		if (len1 < 1e-6) {
+			result.push(curr);
+			continue;
+		}
 
 		const dx2 = next.x - curr.x;
 		const dy2 = next.y - curr.y;
 		const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-		if (len2 < 1e-6) { result.push(curr); continue; }
+		if (len2 < 1e-6) {
+			result.push(curr);
+			continue;
+		}
 
 		// Perpendicular normals
 		const p1x = dy1 / len1;
@@ -538,8 +558,8 @@ export function offsetPolygonInward(points: Point[], offset: number): Point[] {
 			continue;
 		}
 
-		let bnx = (bx / blen) * inwardSign;
-		let bny = (by / blen) * inwardSign;
+		const bnx = (bx / blen) * inwardSign;
+		const bny = (by / blen) * inwardSign;
 
 		// Edge direction vectors for half-angle calculation
 		const e1x = dx1 / len1;
@@ -570,9 +590,38 @@ export function minDistanceToPolygonEdge(x: number, y: number, polygon: Point[])
 	for (let i = 0; i < polygon.length; i++) {
 		const j = (i + 1) % polygon.length;
 		const dist = pointToSegmentDistance(x, y, polygon[i].x, polygon[i].y, polygon[j].x, polygon[j].y);
-		if (dist < minDist) minDist = dist;
+		if (dist < minDist)
+			minDist = dist;
 	}
 	return minDist;
+}
+
+export function closestPointOnPolygon(x: number, y: number, polygon: Point[]): Point {
+	let minDist = Infinity;
+	let closest: Point = { x, y };
+	for (let i = 0; i < polygon.length; i++) {
+		const j = (i + 1) % polygon.length;
+		const pt = closestPointOnSegment(x, y, polygon[i].x, polygon[i].y, polygon[j].x, polygon[j].y);
+		const dx = pt.x - x;
+		const dy = pt.y - y;
+		const dist = dx * dx + dy * dy;
+		if (dist < minDist) {
+			minDist = dist;
+			closest = pt;
+		}
+	}
+	return closest;
+}
+
+function closestPointOnSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): Point {
+	const dx = bx - ax;
+	const dy = by - ay;
+	const lenSq = dx * dx + dy * dy;
+	if (lenSq < 1e-12)
+		return { x: ax, y: ay };
+	let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+	t = Math.max(0, Math.min(1, t));
+	return { x: ax + t * dx, y: ay + t * dy };
 }
 
 function pointToSegmentDistance(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
@@ -595,8 +644,12 @@ export function offsetPolygonPoints(points: Point[], offset: number): Point[] {
 
 	// Detect circle polygons (many points, roughly uniform radius) and use radial offset
 	if (points.length >= 16) {
-		let cx = 0; let cy = 0;
-		for (const p of points) { cx += p.x; cy += p.y; }
+		let cx = 0;
+		let cy = 0;
+		for (const p of points) {
+			cx += p.x;
+			cy += p.y;
+		}
 		cx /= points.length;
 		cy /= points.length;
 		const radii = points.map(p => Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2));
@@ -605,11 +658,12 @@ export function offsetPolygonPoints(points: Point[], offset: number): Point[] {
 			const maxDev = Math.max(...radii.map(r => Math.abs(r - avgRadius)));
 			if (maxDev / avgRadius < 0.02) {
 				const newRadius = avgRadius + offset;
-				return points.map(p => {
+				return points.map((p) => {
 					const dx = p.x - cx;
 					const dy = p.y - cy;
 					const dist = Math.sqrt(dx * dx + dy * dy);
-					if (dist < 1e-6) return { x: cx + offset, y: cy };
+					if (dist < 1e-6)
+						return { x: cx + offset, y: cy };
 					const scale = newRadius / dist;
 					return { x: cx + dx * scale, y: cy + dy * scale };
 				});
@@ -629,14 +683,20 @@ export function offsetPolygonPoints(points: Point[], offset: number): Point[] {
 		const dx1 = curr.x - prev.x;
 		const dy1 = curr.y - prev.y;
 		const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-		if (len1 < 1e-6) { result.push(curr); continue; }
+		if (len1 < 1e-6) {
+			result.push(curr);
+			continue;
+		}
 		const nx1 = -dy1 / len1;
 		const ny1 = dx1 / len1;
 
 		const dx2 = next.x - curr.x;
 		const dy2 = next.y - curr.y;
 		const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-		if (len2 < 1e-6) { result.push(curr); continue; }
+		if (len2 < 1e-6) {
+			result.push(curr);
+			continue;
+		}
 		const nx2 = -dy2 / len2;
 		const ny2 = dx2 / len2;
 

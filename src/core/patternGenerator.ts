@@ -128,7 +128,7 @@ async function generateSquarePattern(
 		for (const pt of batch) {
 			try {
 				const hw = size / 2;
-				const source = ['R', pt.x - hw, pt.y - hw, size, size, rotation, 0] as (number | string)[];
+				const source = ['R', pt.x - hw, pt.y + hw, size, size, rotation, 0] as (number | string)[];
 				const fill = await createFill(layerId, source);
 				if (fill)
 					created++;
@@ -161,7 +161,7 @@ async function generateRectanglePattern(
 			try {
 				const hw = width / 2;
 				const hh = height / 2;
-				const source = ['R', pt.x - hw, pt.y - hh, width, height, rotation, 0] as (number | string)[];
+				const source = ['R', pt.x - hw, pt.y + hh, width, height, rotation, 0] as (number | string)[];
 				const fill = await createFill(layerId, source);
 				if (fill)
 					created++;
@@ -234,7 +234,7 @@ async function generateOvalPattern(
 
 		for (const pt of batch) {
 			try {
-				const source = ['R', pt.x - hw, pt.y - hh, width, height, rotation, cornerRadius] as (number | string)[];
+				const source = ['R', pt.x - hw, pt.y + hh, width, height, rotation, cornerRadius] as (number | string)[];
 				const fill = await createFill(layerId, source);
 				if (fill)
 					created++;

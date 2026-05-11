@@ -1,6 +1,6 @@
+import type { FootprintPad } from './footprintParser';
 import type { BBox, Point } from './polygonUtils';
 import { LAYER_MULTI } from './constants';
-import type { FootprintPad } from './footprintParser';
 import { getFootprintDataForComponent } from './footprintParser';
 import { calculateBoundingBox, createCirclePolygon, createOvalPolygon, createPadPolygon, createRectanglePolygon, createRegularPolygonPolygon, rotatePoint, sourceArrayToPoints } from './polygonUtils';
 
@@ -15,11 +15,13 @@ const CAP_SEGMENTS = 8;
 
 function createLineCapsule(x1: number, y1: number, x2: number, y2: number, lineWidth: number): Point[] | null {
 	const r = lineWidth / 2;
-	if (r < 1) return null;
+	if (r < 1)
+		return null;
 	const dx = x2 - x1;
 	const dy = y2 - y1;
 	const len = Math.sqrt(dx * dx + dy * dy);
-	if (len < 1) return null;
+	if (len < 1)
+		return null;
 	const ux = dx / len;
 	const uy = dy / len;
 	const nx = -uy;
@@ -44,7 +46,8 @@ function createLineCapsule(x1: number, y1: number, x2: number, y2: number, lineW
 
 function createArcCapsule(x1: number, y1: number, x2: number, y2: number, arcAngleDeg: number, lineWidth: number): Point[] | null {
 	const r = lineWidth / 2;
-	if (r < 1 || Math.abs(arcAngleDeg) < 0.01) return null;
+	if (r < 1 || Math.abs(arcAngleDeg) < 0.01)
+		return null;
 
 	const arcAngle = arcAngleDeg * Math.PI / 180;
 	const mx = (x1 + x2) / 2;
@@ -52,11 +55,13 @@ function createArcCapsule(x1: number, y1: number, x2: number, y2: number, arcAng
 	const dx = x2 - x1;
 	const dy = y2 - y1;
 	const chordLen = Math.sqrt(dx * dx + dy * dy);
-	if (chordLen < 1) return null;
+	if (chordLen < 1)
+		return null;
 
 	const halfAngle = arcAngle / 2;
 	const sinHalf = Math.sin(halfAngle);
-	if (Math.abs(sinHalf) < 1e-6) return createLineCapsule(x1, y1, x2, y2, lineWidth);
+	if (Math.abs(sinHalf) < 1e-6)
+		return createLineCapsule(x1, y1, x2, y2, lineWidth);
 
 	const radius = chordLen / (2 * Math.abs(sinHalf));
 	const d = radius * Math.cos(halfAngle);
@@ -73,7 +78,8 @@ function createArcCapsule(x1: number, y1: number, x2: number, y2: number, arcAng
 	let sweep = endAngle - startAngle;
 	if (arcAngleDeg > 0) {
 		while (sweep < 0) sweep += 2 * Math.PI;
-	} else {
+	}
+	else {
 		while (sweep > 0) sweep -= 2 * Math.PI;
 	}
 
@@ -117,13 +123,15 @@ function transformLocalToWorld(px: number, py: number, cx: number, cy: number, r
 }
 
 function buildPadPolygonFromFootprint(pad: FootprintPad, compX: number, compY: number, compRotation: number): Point[] | null {
-	const world = transformLocalToWorld(pad.x, pad.y, compX, compY, compRotation);
-	const totalRotDeg = (compRotation + pad.rotation) * 180 / Math.PI;
+	const compRotRad = compRotation * Math.PI / 180;
+	const world = transformLocalToWorld(pad.x, pad.y, compX, compY, compRotRad);
+	const totalRotDeg = compRotation + pad.rotation;
 
 	if (pad.shape && pad.width > 0) {
 		switch (pad.shape) {
 			case 'ELLIPSE':
-				if (Math.abs(pad.width - pad.height) < 1) return createCirclePolygon(world.x, world.y, pad.width / 2, 16);
+				if (Math.abs(pad.width - pad.height) < 1)
+					return createCirclePolygon(world.x, world.y, pad.width / 2, 16);
 				return createOvalPolygon(world.x, world.y, pad.width, pad.height, totalRotDeg);
 			case 'OVAL':
 				return createOvalPolygon(world.x, world.y, pad.width, pad.height, totalRotDeg);
@@ -131,7 +139,8 @@ function buildPadPolygonFromFootprint(pad: FootprintPad, compX: number, compY: n
 				return createRectanglePolygon(world.x, world.y, pad.width, pad.height, totalRotDeg);
 			case 'NGON': {
 				const sides = pad.padShape?.numberOfSides ?? pad.height;
-				if (sides >= 3) return createRegularPolygonPolygon(world.x, world.y, pad.width, sides, totalRotDeg);
+				if (sides >= 3)
+					return createRegularPolygonPolygon(world.x, world.y, pad.width, sides, totalRotDeg);
 				return createCirclePolygon(world.x, world.y, pad.width / 2, 16);
 			}
 			default:
@@ -187,37 +196,37 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 		}
 	}
 
-		// MULTI-layer fills (layer 12, 挖槽区域)
-		for (const fill of multiFills) {
-			try {
-				const complexPolygon = fill.getState_ComplexPolygon();
-				const sources = complexPolygon.getSourceStrictComplex();
-				for (const source of sources) {
-					const points = sourceArrayToPoints(source as (number | string)[]);
-					if (points.length >= 3) {
-						obstacles.push({ points, bbox: calculateBoundingBox(points), type: 'region' });
-					}
+	// MULTI-layer fills (layer 12, 挖槽区域)
+	for (const fill of multiFills) {
+		try {
+			const complexPolygon = fill.getState_ComplexPolygon();
+			const sources = complexPolygon.getSourceStrictComplex();
+			for (const source of sources) {
+				const points = sourceArrayToPoints(source as (number | string)[]);
+				if (points.length >= 3) {
+					obstacles.push({ points, bbox: calculateBoundingBox(points), type: 'region' });
 				}
-			}
-			catch {
-				try {
-					const primitiveId = fill.getState_PrimitiveId();
-					const bboxData = await eda.pcb_Primitive.getPrimitivesBBox([primitiveId]);
-					if (bboxData) {
-						const points: Point[] = [
-							{ x: bboxData.minX, y: bboxData.minY },
-							{ x: bboxData.maxX, y: bboxData.minY },
-							{ x: bboxData.maxX, y: bboxData.maxY },
-							{ x: bboxData.minX, y: bboxData.maxY },
-						];
-						obstacles.push({ points, bbox: bboxData as unknown as BBox, type: 'region' });
-					}
-				}
-				catch { /* skip */ }
 			}
 		}
+		catch {
+			try {
+				const primitiveId = fill.getState_PrimitiveId();
+				const bboxData = await eda.pcb_Primitive.getPrimitivesBBox([primitiveId]);
+				if (bboxData) {
+					const points: Point[] = [
+						{ x: bboxData.minX, y: bboxData.minY },
+						{ x: bboxData.maxX, y: bboxData.minY },
+						{ x: bboxData.maxX, y: bboxData.maxY },
+						{ x: bboxData.minX, y: bboxData.maxY },
+					];
+					obstacles.push({ points, bbox: bboxData as unknown as BBox, type: 'region' });
+				}
+			}
+			catch { /* skip */ }
+		}
+	}
 
-		// Pours
+	// Pours
 	for (const pour of pours) {
 		try {
 			const complexPolygon = (pour as any).getState_ComplexPolygon?.();
@@ -232,7 +241,8 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 					};
 					if (Array.isArray(source) && source.length > 0 && Array.isArray(source[0])) {
 						for (const sub of source as (number | string)[][]) trySource(sub);
-					} else {
+					}
+					else {
 						trySource(source as (number | string)[]);
 					}
 					continue;
@@ -268,7 +278,8 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 				if (source) {
 					if (Array.isArray(source) && source.length > 0 && Array.isArray(source[0])) {
 						for (const sub of source as (number | string)[][]) trySource(sub);
-					} else {
+					}
+					else {
 						trySource(source as (number | string)[]);
 					}
 					continue;
@@ -311,7 +322,8 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 	for (const arc of arcs) {
 		try {
 			const layer = (arc as any).layer ?? (arc.getState_Layer ? arc.getState_Layer() : undefined);
-			if (layer !== layerId) continue;
+			if (layer !== layerId)
+				continue;
 			const x1 = (arc as any).startX ?? (arc.getState_StartX ? arc.getState_StartX() : 0);
 			const y1 = (arc as any).startY ?? (arc.getState_StartY ? arc.getState_StartY() : 0);
 			const x2 = (arc as any).endX ?? (arc.getState_EndX ? arc.getState_EndX() : 0);
@@ -332,12 +344,6 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 	if (components && components.length > 0) {
 		for (const comp of components) {
 			try {
-				const compLayer = comp.getState_Layer?.();
-				const padMatchesLayer = isTargetInner
-					|| (compLayer === 1 && layerId === 1)
-					|| (compLayer === 2 && layerId === 2);
-				if (!padMatchesLayer && !isTargetInner) continue;
-
 				const compId = comp.getState_PrimitiveId();
 				const { pads, regions: fpRegions, compX, compY, compRotation } = await getFootprintDataForComponent(comp);
 
@@ -345,8 +351,10 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 					for (const fpPad of pads) {
 						try {
 							const padLayer = fpPad.layer;
-							if (!isTargetInner && padLayer !== layerId && padLayer !== LAYER_MULTI) continue;
-							if (isTargetInner && padLayer !== 1 && padLayer !== 2 && padLayer !== LAYER_MULTI) continue;
+							if (!isTargetInner && padLayer !== layerId && padLayer !== LAYER_MULTI)
+								continue;
+							if (isTargetInner && padLayer !== 1 && padLayer !== 2 && padLayer !== LAYER_MULTI)
+								continue;
 
 							const points = buildPadPolygonFromFootprint(fpPad, compX, compY, compRotation);
 							if (points && points.length >= 3) {
@@ -355,42 +363,52 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 						}
 						catch { /* skip pad */ }
 					}
-				} else {
+				}
+				else {
 					failedCompIds.add(compId);
 				}
 
-				// Footprint fills on MULTI layer (挖槽区域)
-				console.warn('[BC] Footprint regions:', fpRegions.length, '=>', fpRegions.map(r => ({ layer: r.layer, sources: r.sources.length })));
+				// Footprint fills (挖槽 + copper fills on signal layers)
+				console.warn('[BC] Footprint regions:', fpRegions.length, 'compX:', compX, 'compY:', compY, 'compRot:', compRotation, 'sources:', JSON.stringify(fpRegions.map(r => r.sources)));
 				for (const fpRegion of fpRegions) {
 					try {
 						const regLayer = fpRegion.layer;
-						const regIsCopper = regLayer === 1 || regLayer === 2 || (regLayer >= 15 && regLayer <= 44);
-					if (!isTargetInner && regLayer !== layerId && regIsCopper) continue;
-						if (isTargetInner && regIsCopper && regLayer !== 1 && regLayer !== 2) continue;
-						if (!fpRegion.sources || fpRegion.sources.length === 0) continue;
+						// MULTI layer (12) = 挖槽, must avoid on all layers
+						// Otherwise only avoid fills on the same target layer
+						if (regLayer !== LAYER_MULTI && regLayer !== layerId)
+							continue;
+						if (!fpRegion.sources || fpRegion.sources.length === 0)
+							continue;
 
-						const world = transformLocalToWorld(fpRegion.x, fpRegion.y, compX, compY, compRotation);
-						const totalRotDeg = (compRotation + fpRegion.rotation) * 180 / Math.PI;
+						const compRotRad = compRotation * Math.PI / 180;
+						const world = transformLocalToWorld(fpRegion.x, fpRegion.y, compX, compY, compRotRad);
+						const totalRotDeg = compRotation + fpRegion.rotation;
 
 						for (const src of fpRegion.sources) {
 							const localPts = sourceArrayToPoints(src);
-							if (localPts.length < 3) continue;
+							if (localPts.length < 3)
+								continue;
 
-							const points = localPts.map(p => {
+							const points = localPts.map((p) => {
 								if (Math.abs(totalRotDeg) < 0.01) {
 									return { x: world.x + p.x, y: world.y + p.y };
 								}
 								const rp = rotatePoint(p.x, p.y, 0, 0, totalRotDeg);
 								return { x: world.x + rp.x, y: world.y + rp.y };
 							});
-							obstacles.push({ points, bbox: calculateBoundingBox(points), type: 'region' });
+							const bbox = calculateBoundingBox(points);
+							console.warn('[BC] Slot obstacle bbox:', JSON.stringify(bbox), 'points:', points.length);
+							obstacles.push({ points, bbox, type: 'region' });
 						}
 					}
 					catch { /* skip region */ }
 				}
 			}
 			catch {
-				try { failedCompIds.add(comp.getState_PrimitiveId()); } catch { /* skip */ }
+				try {
+					failedCompIds.add(comp.getState_PrimitiveId());
+				}
+				catch { /* skip */ }
 			}
 		}
 	}
@@ -400,7 +418,8 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 	for (const pad of (allPads || [])) {
 		try {
 			const padLayer = pad.getState_Layer?.();
-			if (padLayer !== layerId && padLayer !== LAYER_MULTI && layerId !== LAYER_MULTI) continue;
+			if (padLayer !== layerId && padLayer !== LAYER_MULTI && layerId !== LAYER_MULTI)
+				continue;
 
 			const x = pad.getState_X?.() ?? 0;
 			const y = pad.getState_Y?.() ?? 0;
@@ -424,7 +443,8 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 					const h = bboxData.maxY - bboxData.minY;
 					if (Math.abs(w - h) < 1) {
 						points = createCirclePolygon(cx, cy, Math.min(w, h) / 2, 16);
-					} else {
+					}
+					else {
 						points = createRectanglePolygon(cx, cy, w, h, 0);
 					}
 				}
@@ -448,12 +468,14 @@ export async function collectObstacles(layerId: number): Promise<Obstacle[]> {
 			let radius: number;
 			if (diameter > 0) {
 				radius = diameter / 2;
-			} else {
+			}
+			else {
 				const primitiveId = via.getState_PrimitiveId();
 				const bboxData = await eda.pcb_Primitive.getPrimitivesBBox([primitiveId]);
 				if (bboxData) {
 					radius = Math.min(bboxData.maxX - bboxData.minX, bboxData.maxY - bboxData.minY) / 2;
-				} else {
+				}
+				else {
 					continue;
 				}
 			}

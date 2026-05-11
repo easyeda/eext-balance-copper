@@ -3,14 +3,17 @@ import JSZip from 'jszip';
 const TAG = '[BC:FootprintParser]';
 
 function parseElibuLine(line: string): { type: string; data: any } | null {
-	if (!line || line.trim().length === 0) return null;
+	if (!line || line.trim().length === 0)
+		return null;
 	try {
 		const parts = line.split('||');
-		if (parts.length < 2) return null;
+		if (parts.length < 2)
+			return null;
 		const header = JSON.parse(parts[0]);
 		// Strip trailing | from data part
 		let dataStr = parts.slice(1).join('||');
-		if (dataStr.endsWith('|')) dataStr = dataStr.slice(0, -1);
+		if (dataStr.endsWith('|'))
+			dataStr = dataStr.slice(0, -1);
 		const data = JSON.parse(dataStr);
 		return { type: header.type || '', data };
 	}
@@ -49,7 +52,8 @@ async function extractFromElibu(content: string): Promise<{
 
 	for (const line of lines) {
 		const parsed = parseElibuLine(line);
-		if (!parsed) continue;
+		if (!parsed)
+			continue;
 
 		const d = parsed.data;
 
@@ -59,10 +63,12 @@ async function extractFromElibu(content: string): Promise<{
 			if (Array.isArray(d.hole)) {
 				holeType = d.hole[0] ?? 'CIRCLE';
 				holeLength = d.hole[2] ?? 0;
-			} else if (Array.isArray(d.platedHole)) {
+			}
+			else if (Array.isArray(d.platedHole)) {
 				holeType = d.platedHole[0] ?? 'CIRCLE';
 				holeLength = d.platedHole[2] ?? 0;
-			} else {
+			}
+			else {
 				holeType = d.holeType ?? d.slotType ?? 'CIRCLE';
 				holeLength = d.holeLength ?? d.slotLength ?? 0;
 			}
@@ -82,28 +88,26 @@ async function extractFromElibu(content: string): Promise<{
 		}
 		else if (parsed.type === 'FILL') {
 			const layer = d.layerId ?? d.layer ?? 0;
-			// Fills on MULTI layer (12) are 挖槽区域 inside footprints
-			if (layer === 12) {
-				const rawPath = d.path ?? d.source ?? d.shapeSource ?? null;
-				if (rawPath && Array.isArray(rawPath)) {
-					// path may be nested: [[CIRCLE,cx,cy,r]] or [[x1,y1,'L',x2,y2,...]]
-					const sources: (number | string)[][] = [];
-					if (rawPath.length > 0 && Array.isArray(rawPath[0])) {
-						for (const sub of rawPath) {
-							if (Array.isArray(sub)) sources.push(sub as (number | string)[]);
-						}
-					} else {
-						sources.push(rawPath as (number | string)[]);
+			const rawPath = d.path ?? d.source ?? d.shapeSource ?? null;
+			if (rawPath && Array.isArray(rawPath)) {
+				const sources: (number | string)[][] = [];
+				if (rawPath.length > 0 && Array.isArray(rawPath[0])) {
+					for (const sub of rawPath) {
+						if (Array.isArray(sub))
+							sources.push(sub as (number | string)[]);
 					}
-					if (sources.length > 0) {
-						regions.push({
-							x: d.x ?? d.centerX ?? 0,
-							y: d.y ?? d.centerY ?? 0,
-							rotation: d.rotation ?? 0,
-							layer,
-							sources,
-						});
-					}
+				}
+				else {
+					sources.push(rawPath as (number | string)[]);
+				}
+				if (sources.length > 0) {
+					regions.push({
+						x: d.x ?? d.centerX ?? 0,
+						y: d.y ?? d.centerY ?? 0,
+						rotation: d.rotation ?? 0,
+						layer,
+						sources,
+					});
 				}
 			}
 		}
@@ -116,7 +120,8 @@ async function extractFromZip(file: File): Promise<{
 	pads: FootprintPad[];
 	regions: FootprintRegion[];
 }> {
-	if (!file) return { pads: [], regions: [] };
+	if (!file)
+		return { pads: [], regions: [] };
 	try {
 		const zip = await JSZip.loadAsync(file);
 		for (const fileName in zip.files) {

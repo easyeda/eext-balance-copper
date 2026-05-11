@@ -1,7 +1,7 @@
 import type { Obstacle } from './obstacleCollector';
 import type { BBox, Point } from './polygonUtils';
 import { DEFAULT_CLEARANCE } from './constants';
-import { expandBBox, isPointInsidePolygon, minDistanceToPolygonEdge } from './polygonUtils';
+import { closestPointOnPolygon, expandBBox, isPointInsidePolygon, minDistanceToPolygonEdge } from './polygonUtils';
 
 interface SpatialCell {
 	obstacles: Obstacle[];
@@ -45,7 +45,8 @@ class SpatialIndex {
 		const cy = Math.floor((y - this.minY) / this.cellSize);
 		const key = `${cx},${cy}`;
 		const cell = this.cells.get(key);
-		if (!cell) return [];
+		if (!cell)
+			return [];
 		return cell.obstacles.map((obs, i) => ({ obstacle: obs, margin: cell.margins[i] }));
 	}
 }
@@ -67,44 +68,54 @@ async function getDrcClearances(): Promise<DrcClearances> {
 
 	try {
 		const config: any = await (eda as any).pcb_Drc.getCurrentRuleConfiguration();
-		if (!config) return result;
+		if (!config)
+			return result;
 
 		const safeSpacing = config?.config?.Spacing?.['Safe Spacing'];
-		if (!safeSpacing) return result;
+		if (!safeSpacing)
+			return result;
 
 		const mmToMil = 1 / 0.0254;
-		let traceMax = 0, padMax = 0, regionMax = 0, boardEdgeMax = 0;
 
+		// Find the default rule (isSetDefault: true)
+		let defaultRule: any = null;
 		for (const rule of Object.values(safeSpacing)) {
-			const content = (rule as any)?.tables?.['1']?.content;
-			if (!content) continue;
-
-			// Matrix: 0=Track, 1=SMD Pad, 2=TH Pad, 5=Via, 6=Fill Region, 11=Board Outline
-			const fillToTrack = content[6]?.[0] ?? 0;
-			const fillToPad = Math.max(content[6]?.[1] ?? 0, content[6]?.[2] ?? 0);
-			const fillToVia = content[6]?.[5] ?? 0;
-			const fillToFill = content[6]?.[6] ?? 0;
-			const boardToFill = content[11]?.[6] ?? 0;
-
-			traceMax = Math.max(traceMax, fillToTrack);
-			padMax = Math.max(padMax, fillToPad, fillToVia);
-			regionMax = Math.max(regionMax, fillToFill);
-			boardEdgeMax = Math.max(boardEdgeMax, boardToFill);
+			if ((rule as any)?.isSetDefault === true) {
+				defaultRule = rule;
+				break;
+			}
+		}
+		if (!defaultRule) {
+			// Fallback: use first rule
+			defaultRule = Object.values(safeSpacing)[0];
 		}
 
-		if (traceMax > 0) result.trace = Math.ceil(traceMax * mmToMil);
-		if (padMax > 0) result.pad = Math.ceil(padMax * mmToMil);
-		if (regionMax > 0) result.region = Math.ceil(regionMax * mmToMil);
-		if (boardEdgeMax > 0) result.boardEdge = Math.ceil(boardEdgeMax * mmToMil);
+		const content = defaultRule?.tables?.['1']?.content;
+		if (!content)
+			return result;
+
+		// Matrix indices: 0=Track, 1=SMD Pad, 2=TH Pad, 3=SMD Test Point,
+		// 4=TH Test Point, 5=Via, 6=Fill Region/Teardrop, 7=Copper/Plane Zone,
+		// 8=Slot Region, 9=Line, 10=Text/Image, 11=Board Outline, 12=Hole
+		const fillToTrack = content[6]?.[0] ?? 0;
+		const fillToPad = Math.max(content[6]?.[1] ?? 0, content[6]?.[2] ?? 0);
+		const fillToVia = content[6]?.[5] ?? 0;
+		const fillToFill = content[6]?.[6] ?? 0;
+		const fillToSlot = content[6]?.[8] ?? 0;
+		const boardToFill = content[11]?.[6] ?? 0;
+
+		if (fillToTrack > 0)
+			result.trace = Math.ceil(fillToTrack * mmToMil);
+		if (fillToPad > 0 || fillToVia > 0)
+			result.pad = Math.ceil(Math.max(fillToPad, fillToVia) * mmToMil);
+		if (fillToFill > 0 || fillToSlot > 0)
+			result.region = Math.ceil(Math.max(fillToFill, fillToSlot) * mmToMil);
+		if (boardToFill > 0)
+			result.boardEdge = Math.ceil(boardToFill * mmToMil);
 	}
 	catch { /* use defaults */ }
 
 	return result;
-}
-
-function bboxIntersects(a: BBox, b: BBox): boolean {
-	return a.minX < b.maxX && a.maxX > b.minX
-		&& a.minY < b.maxY && a.maxY > b.minY;
 }
 
 export async function findBlankAreaPoints(
@@ -134,10 +145,24 @@ export async function findBlankAreaPoints(
 	const phw = (patternWidth || 0) / 2;
 	const phh = (patternHeight || 0) / 2;
 	const patternRadius = Math.sqrt(phw * phw + phh * phh);
-	// Safety buffer: obstacle polygons are approximated (circles by N segments, etc.)
-	// This compensates for the resulting distance overestimation.
-	const clearanceSafety = 2;
+	// Compensate for polygon approximation of circles (16-24 segments):
+	// error ≈ r * (1 - cos(π/n)), up to ~2% of radius per circle
+	const clearanceSafety = 4;
 	console.warn('[BC] Pattern half-size:', phw, 'x', phh, 'radius:', patternRadius, 'safety:', clearanceSafety);
+
+	// Pre-compute pattern rotation for support function
+	const rotRad = (rotationAngle || 0) * Math.PI / 180;
+	const cosR = Math.cos(rotRad);
+	const sinR = Math.sin(rotRad);
+
+	// Support function: max extent of the rotated rectangle in a given direction
+	// For direction (nx, ny), returns how far the rectangle edge extends from center
+	function patternExtentInDirection(nx: number, ny: number): number {
+		// Transform direction into pattern's local frame
+		const lx = nx * cosR + ny * sinR;
+		const ly = -nx * sinR + ny * cosR;
+		return Math.abs(lx) * phw + Math.abs(ly) * phh;
+	}
 
 	const margins: number[] = [];
 	for (const obs of obstacles) {
@@ -197,31 +222,69 @@ export async function findBlankAreaPoints(
 				}
 			}
 
-				const patternBBox: BBox = {
-					minX: px - phw,
-					minY: py - phh,
-					maxX: px + phw,
-					maxY: py + phh,
-				};
-
-				let blocked = false;
-					if (spatialIndex) {
-						const nearby = spatialIndex.queryPoint(px, py);
-						for (const item of nearby) {
-							const eb = expandBBox(item.obstacle.bbox, item.margin + patternRadius + clearanceSafety);
-							if (px + phw < eb.minX || px - phw > eb.maxX || py + phh < eb.minY || py - phh > eb.maxY) continue;
-							if (isPointInsidePolygon(px, py, item.obstacle.points)) { blocked = true; break; }
-							if (minDistanceToPolygonEdge(px, py, item.obstacle.points) < item.margin + patternRadius + clearanceSafety) { blocked = true; break; }
+			let blocked = false;
+			if (spatialIndex) {
+				const nearby = spatialIndex.queryPoint(px, py);
+				for (const item of nearby) {
+					const eb = expandBBox(item.obstacle.bbox, item.margin + patternRadius + clearanceSafety);
+					if (px + phw < eb.minX || px - phw > eb.maxX || py + phh < eb.minY || py - phh > eb.maxY)
+						continue;
+					if (isPointInsidePolygon(px, py, item.obstacle.points)) {
+						blocked = true;
+						break;
+					}
+					const centerDist = minDistanceToPolygonEdge(px, py, item.obstacle.points);
+					const requiredDist = item.margin + clearanceSafety;
+					if (centerDist < requiredDist + patternRadius) {
+						// Find closest point direction and use support function
+						const cp = closestPointOnPolygon(px, py, item.obstacle.points);
+						const dx = cp.x - px;
+						const dy = cp.y - py;
+						const dist = Math.sqrt(dx * dx + dy * dy);
+						if (dist < 1e-6) {
+							blocked = true;
+							break;
+						}
+						const nx = dx / dist;
+						const ny = dy / dist;
+						const extent = patternExtentInDirection(nx, ny);
+						if (dist - extent < requiredDist) {
+							blocked = true;
+							break;
 						}
 					}
-					else {
-						for (let i = 0; i < obstacles.length; i++) {
-							const eb = expandBBox(obstacles[i].bbox, margins[i] + patternRadius + clearanceSafety);
-							if (px + phw < eb.minX || px - phw > eb.maxX || py + phh < eb.minY || py - phh > eb.maxY) continue;
-							if (isPointInsidePolygon(px, py, obstacles[i].points)) { blocked = true; break; }
-							if (minDistanceToPolygonEdge(px, py, obstacles[i].points) < margins[i] + patternRadius + clearanceSafety) { blocked = true; break; }
+				}
+			}
+			else {
+				for (let i = 0; i < obstacles.length; i++) {
+					const eb = expandBBox(obstacles[i].bbox, margins[i] + patternRadius + clearanceSafety);
+					if (px + phw < eb.minX || px - phw > eb.maxX || py + phh < eb.minY || py - phh > eb.maxY)
+						continue;
+					if (isPointInsidePolygon(px, py, obstacles[i].points)) {
+						blocked = true;
+						break;
+					}
+					const centerDist = minDistanceToPolygonEdge(px, py, obstacles[i].points);
+					const requiredDist = margins[i] + clearanceSafety;
+					if (centerDist < requiredDist + patternRadius) {
+						const cp = closestPointOnPolygon(px, py, obstacles[i].points);
+						const dx = cp.x - px;
+						const dy = cp.y - py;
+						const dist = Math.sqrt(dx * dx + dy * dy);
+						if (dist < 1e-6) {
+							blocked = true;
+							break;
+						}
+						const nx = dx / dist;
+						const ny = dy / dist;
+						const extent = patternExtentInDirection(nx, ny);
+						if (dist - extent < requiredDist) {
+							blocked = true;
+							break;
 						}
 					}
+				}
+			}
 
 			if (!blocked) {
 				validPoints.push({ x: px, y: py });

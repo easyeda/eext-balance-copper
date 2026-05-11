@@ -8,7 +8,8 @@ function collectPolygonSources(
 	const result: Point[][] = [];
 	const trySource = (source: (number | string)[]) => {
 		const pts = sourceArrayToPoints(source);
-		if (pts.length >= 3) result.push(pts);
+		if (pts.length >= 3)
+			result.push(pts);
 	};
 
 	if (Array.isArray(sources) && sources.length > 0 && Array.isArray(sources[0])) {

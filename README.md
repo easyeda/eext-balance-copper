@@ -1,4 +1,4 @@
-[简���中文](#) | [English](./README.en.md)
+[简体中文](#) | [English](./README.en.md)
 
 # 平衡铜绘制 (Balance Copper)
 

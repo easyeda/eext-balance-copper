@@ -553,7 +553,8 @@ async function handleAreaGenerate(config: BalanceCopperConfig): Promise<void> {
 async function pollForSelection(timeoutMs: number): Promise<{ minX: number; minY: number; maxX: number; maxY: number } | undefined> {
 	const startTime = Date.now();
 	let firstPoint: { x: number; y: number } | undefined;
-	let hasFirst = false;
+	let secondPoint: { x: number; y: number } | undefined;
+	let clickCount = 0;
 
 	// Register mouse click listener to capture two points
 	const listenerId = '__bc_area_select';
@@ -563,10 +564,18 @@ async function pollForSelection(timeoutMs: number): Promise<{ minX: number; minY
 			if (!pos || pos.x == null)
 				return;
 
-			if (!hasFirst) {
+			if (clickCount === 0) {
 				firstPoint = { x: pos.x, y: pos.y };
-				hasFirst = true;
+				clickCount = 1;
 				eda.sys_Message.showToastMessage(msg('clickSecond'));
+			}
+			else if (clickCount === 1) {
+				const dx = Math.abs(pos.x - firstPoint!.x);
+				const dy = Math.abs(pos.y - firstPoint!.y);
+				if (dx > 10 || dy > 10) {
+					secondPoint = { x: pos.x, y: pos.y };
+					clickCount = 2;
+				}
 			}
 		});
 	}
@@ -587,34 +596,20 @@ async function pollForSelection(timeoutMs: number): Promise<{ minX: number; minY
 				return;
 			}
 
-			if (hasFirst) {
-				const pos = await (eda as any).pcb_SelectControl.getCurrentMousePosition();
-				if (!pos || pos.x == null)
-					return;
-
-				// Detect second click: position changed significantly from first
-				const dx = Math.abs(pos.x - firstPoint!.x);
-				const dy = Math.abs(pos.y - firstPoint!.y);
-				if (dx > 10 || dy > 10) {
-					// Wait for user to stop moving (stable position)
-					await new Promise(r => setTimeout(r, 200));
-					const pos2 = await (eda as any).pcb_SelectControl.getCurrentMousePosition();
-					if (pos2 && Math.abs(pos2.x - pos.x) < 5 && Math.abs(pos2.y - pos.y) < 5) {
-						clearInterval(timerId);
-						try {
-							(eda as any).pcb_Event.removeEventListener(listenerId);
-						}
-						catch {}
-						resolve({
-							minX: Math.min(firstPoint!.x, pos2.x),
-							minY: Math.min(firstPoint!.y, pos2.y),
-							maxX: Math.max(firstPoint!.x, pos2.x),
-							maxY: Math.max(firstPoint!.y, pos2.y),
-						});
-					}
+			if (clickCount === 2 && firstPoint && secondPoint) {
+				clearInterval(timerId);
+				try {
+					(eda as any).pcb_Event.removeEventListener(listenerId);
 				}
+				catch {}
+				resolve({
+					minX: Math.min(firstPoint.x, secondPoint.x),
+					minY: Math.min(firstPoint.y, secondPoint.y),
+					maxX: Math.max(firstPoint.x, secondPoint.x),
+					maxY: Math.max(firstPoint.y, secondPoint.y),
+				});
 			}
-		}, 500);
+		}, 300);
 	});
 }
 
