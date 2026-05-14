@@ -103,8 +103,16 @@ export function sourceArrayToPoints(sourceArray: (number | string)[]): Point[] {
 				const h = sourceArray[i + 4] as number;
 				const rot = (sourceArray[i + 5] as number) || 0;
 				const cr = (sourceArray[i + 6] as number) || 0;
-				const crx = rx + w / 2;
-				const cry = ry - h / 2;
+				// (rx, ry) is the top-left corner rotated by rot around center
+				// Reverse-rotate to find center
+				const rad = (rot * Math.PI) / 180;
+				const cosA = Math.cos(rad);
+				const sinA = Math.sin(rad);
+				// Unrotated offset from center to top-left: (-w/2, h/2)
+				const offX = -w / 2 * cosA - h / 2 * sinA;
+				const offY = -w / 2 * sinA + h / 2 * cosA;
+				const crx = rx - offX;
+				const cry = ry - offY;
 				if (cr > 0) {
 					points.push(...createRoundedRectPolygon(crx, cry, w, h, cr, rot));
 				}
@@ -121,7 +129,26 @@ export function sourceArrayToPoints(sourceArray: (number | string)[]): Point[] {
 				}
 			}
 			else if (val === 'ARC' || val === 'CARC') {
-				i++;
+				const angle = sourceArray[i + 1] as number;
+				const endX = sourceArray[i + 2] as number;
+				const endY = sourceArray[i + 3] as number;
+				if (typeof angle === 'number' && typeof endX === 'number' && typeof endY === 'number' && points.length > 0) {
+					const lastPt = points[points.length - 1];
+					let segPts: Point[];
+					if (val === 'ARC') {
+						segPts = arcToSegments(lastPt.x, lastPt.y, endX, endY, angle);
+					}
+					else {
+						segPts = carcToSegments(lastPt.x, lastPt.y, endX, endY, angle);
+					}
+					if (segPts.length > 0)
+						segPts.shift();
+					points.push(...segPts);
+					i += 4;
+				}
+				else {
+					i++;
+				}
 			}
 			else if (val === 'C') {
 				i++;

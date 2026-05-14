@@ -86,7 +86,6 @@ async function getDrcClearances(): Promise<DrcClearances> {
 			}
 		}
 		if (!defaultRule) {
-			// Fallback: use first rule
 			defaultRule = Object.values(safeSpacing)[0];
 		}
 
@@ -94,24 +93,34 @@ async function getDrcClearances(): Promise<DrcClearances> {
 		if (!content)
 			return result;
 
-		// Matrix indices: 0=Track, 1=SMD Pad, 2=TH Pad, 3=SMD Test Point,
+		// Check unit: if "mil", values are already in mil; if "mm", convert
+		const unit = defaultRule?.unit ?? 'mm';
+		const scale = unit === 'mil' ? 1 : mmToMil;
+
+		// Matrix is lower-triangular: content[row][col] where row > col
+		// Indices: 0=Track, 1=SMD Pad, 2=TH Pad, 3=SMD Test Point,
 		// 4=TH Test Point, 5=Via, 6=Fill Region/Teardrop, 7=Copper/Plane Zone,
 		// 8=Slot Region, 9=Line, 10=Text/Image, 11=Board Outline, 12=Hole
 		const fillToTrack = content[6]?.[0] ?? 0;
-		const fillToPad = Math.max(content[6]?.[1] ?? 0, content[6]?.[2] ?? 0);
+		const fillToSmdPad = content[6]?.[1] ?? 0;
+		const fillToThPad = content[6]?.[2] ?? 0;
 		const fillToVia = content[6]?.[5] ?? 0;
 		const fillToFill = content[6]?.[6] ?? 0;
-		const fillToSlot = content[6]?.[8] ?? 0;
+		const slotToFill = content[8]?.[6] ?? 0;
 		const boardToFill = content[11]?.[6] ?? 0;
 
+		const fillToPad = Math.max(fillToSmdPad, fillToThPad);
+
+		console.warn('[BC] DRC rule unit:', unit, 'scale:', scale, 'raw values: track:', fillToTrack, 'pad:', fillToPad, 'via:', fillToVia, 'fill:', fillToFill, 'slot:', slotToFill, 'board:', boardToFill);
+
 		if (fillToTrack > 0)
-			result.trace = Math.ceil(fillToTrack * mmToMil);
+			result.trace = Math.ceil(fillToTrack * scale);
 		if (fillToPad > 0 || fillToVia > 0)
-			result.pad = Math.ceil(Math.max(fillToPad, fillToVia) * mmToMil);
-		if (fillToFill > 0 || fillToSlot > 0)
-			result.region = Math.ceil(Math.max(fillToFill, fillToSlot) * mmToMil);
+			result.pad = Math.ceil(Math.max(fillToPad, fillToVia) * scale);
+		if (fillToFill > 0 || slotToFill > 0)
+			result.region = Math.ceil(Math.max(fillToFill, slotToFill) * scale);
 		if (boardToFill > 0)
-			result.boardEdge = Math.ceil(boardToFill * mmToMil);
+			result.boardEdge = Math.ceil(boardToFill * scale);
 	}
 	catch { /* use defaults */ }
 
@@ -155,13 +164,73 @@ export async function findBlankAreaPoints(
 	const cosR = Math.cos(rotRad);
 	const sinR = Math.sin(rotRad);
 
+	// Pre-compute pattern corner offsets for reverse checking
+	const patternCorners: Point[] = [
+		{ x: -phw * cosR - (-phh) * sinR, y: -phw * sinR + (-phh) * cosR },
+		{ x: phw * cosR - (-phh) * sinR, y: phw * sinR + (-phh) * cosR },
+		{ x: phw * cosR - phh * sinR, y: phw * sinR + phh * cosR },
+		{ x: -phw * cosR - phh * sinR, y: -phw * sinR + phh * cosR },
+	];
+
 	// Support function: max extent of the rotated rectangle in a given direction
-	// For direction (nx, ny), returns how far the rectangle edge extends from center
+	// For circles (phw == phh), extent is just the radius in all directions
+	const isCirclePattern = Math.abs(phw - phh) < 0.01;
 	function patternExtentInDirection(nx: number, ny: number): number {
-		// Transform direction into pattern's local frame
+		if (isCirclePattern)
+			return phw;
 		const lx = nx * cosR + ny * sinR;
 		const ly = -nx * sinR + ny * cosR;
 		return Math.abs(lx) * phw + Math.abs(ly) * phh;
+	}
+
+	// Check if a pattern at (px, py) is too close to an obstacle polygon
+	function isBlockedByObstacle(px: number, py: number, obsPoints: Point[], requiredDist: number): boolean {
+		// Check closest point on obstacle to center (support function approach)
+		const cp = closestPointOnPolygon(px, py, obsPoints);
+		const cdx = cp.x - px;
+		const cdy = cp.y - py;
+		const centerDist = Math.sqrt(cdx * cdx + cdy * cdy);
+		if (centerDist < 1e-6)
+			return true;
+		const cnx = cdx / centerDist;
+		const cny = cdy / centerDist;
+		const centerExtent = patternExtentInDirection(cnx, cny);
+		if (centerDist - centerExtent < requiredDist)
+			return true;
+
+		// If center is far enough that no vertex/edge could violate, skip detailed checks
+		if (centerDist > requiredDist + patternRadius * 2)
+			return false;
+
+		// Check each obstacle vertex
+		for (const pt of obsPoints) {
+			const dx = pt.x - px;
+			const dy = pt.y - py;
+			const distSq = dx * dx + dy * dy;
+			const maxDist = requiredDist + patternRadius;
+			if (distSq > maxDist * maxDist)
+				continue;
+			const dist = Math.sqrt(distSq);
+			if (dist < 1e-6)
+				return true;
+			const nx = dx / dist;
+			const ny = dy / dist;
+			const extent = patternExtentInDirection(nx, ny);
+			if (dist - extent < requiredDist)
+				return true;
+		}
+
+		// Reverse check: pattern corners to obstacle edge
+		for (const corner of patternCorners) {
+			const cx = px + corner.x;
+			const cy = py + corner.y;
+			if (isPointInsidePolygon(cx, cy, obsPoints))
+				return true;
+			if (minDistanceToPolygonEdge(cx, cy, obsPoints) < requiredDist)
+				return true;
+		}
+
+		return false;
 	}
 
 	const margins: number[] = [];
@@ -233,25 +302,10 @@ export async function findBlankAreaPoints(
 						blocked = true;
 						break;
 					}
-					const centerDist = minDistanceToPolygonEdge(px, py, item.obstacle.points);
 					const requiredDist = item.margin + clearanceSafety;
-					if (centerDist < requiredDist + patternRadius) {
-						// Find closest point direction and use support function
-						const cp = closestPointOnPolygon(px, py, item.obstacle.points);
-						const dx = cp.x - px;
-						const dy = cp.y - py;
-						const dist = Math.sqrt(dx * dx + dy * dy);
-						if (dist < 1e-6) {
-							blocked = true;
-							break;
-						}
-						const nx = dx / dist;
-						const ny = dy / dist;
-						const extent = patternExtentInDirection(nx, ny);
-						if (dist - extent < requiredDist) {
-							blocked = true;
-							break;
-						}
+					if (isBlockedByObstacle(px, py, item.obstacle.points, requiredDist)) {
+						blocked = true;
+						break;
 					}
 				}
 			}
@@ -264,24 +318,10 @@ export async function findBlankAreaPoints(
 						blocked = true;
 						break;
 					}
-					const centerDist = minDistanceToPolygonEdge(px, py, obstacles[i].points);
 					const requiredDist = margins[i] + clearanceSafety;
-					if (centerDist < requiredDist + patternRadius) {
-						const cp = closestPointOnPolygon(px, py, obstacles[i].points);
-						const dx = cp.x - px;
-						const dy = cp.y - py;
-						const dist = Math.sqrt(dx * dx + dy * dy);
-						if (dist < 1e-6) {
-							blocked = true;
-							break;
-						}
-						const nx = dx / dist;
-						const ny = dy / dist;
-						const extent = patternExtentInDirection(nx, ny);
-						if (dist - extent < requiredDist) {
-							blocked = true;
-							break;
-						}
+					if (isBlockedByObstacle(px, py, obstacles[i].points, requiredDist)) {
+						blocked = true;
+						break;
 					}
 				}
 			}

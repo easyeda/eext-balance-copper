@@ -1,11 +1,11 @@
 import type { BalanceCopperConfig, BCCommand, BCStatus, PatternConfig } from './types';
 import * as extensionConfig from '../extension.json';
-import { getBoardOutline } from './core/boardOutline';
+import { getBoardOutlineFromSource } from './core/boardOutline';
 import { findBlankAreaPoints } from './core/clearanceEngine';
 import { ALL_COPPER_LAYERS, LAYER_BOTTOM_COPPER, LAYER_TOP_COPPER, LAYER_TOP_SOLDER_MASK, SIGNAL_COPPER_LAYERS, SOLDER_MASK_LAYERS } from './core/constants';
-import { collectObstacles } from './core/obstacleCollector';
 import { generateBalanceCopper } from './core/patternGenerator';
 import { calculateBoundingBox } from './core/polygonUtils';
+import { getObstaclesForLayer, parseDocumentSource } from './core/sourceParser';
 import { PatternType, TargetLayer } from './types';
 
 const TAG = '[BalanceCopper]';
@@ -65,7 +65,7 @@ function getPatternBBox(pattern: PatternConfig): { width: number; height: number
 	}
 
 	const rot = pattern.rotationAngle ?? 0;
-	if (rot !== 0 && pattern.patternType !== PatternType.DOT) {
+	if (rot !== 0) {
 		const rad = (rot * Math.PI) / 180;
 		const absCos = Math.abs(Math.cos(rad));
 		const absSin = Math.abs(Math.sin(rad));
@@ -188,28 +188,30 @@ async function handleClear(): Promise<void> {
 
 		sendStatus({ type: 'progress', message: msg('clearing'), progress: 10 });
 
-		// Delete fills in batches
-		const BATCH_DELETE_SIZE = 50;
-		let deleted = 0;
-
-		for (let i = 0; i < fills.length; i += BATCH_DELETE_SIZE) {
-			const batch = fills.slice(i, i + BATCH_DELETE_SIZE);
-			try {
-				await (eda as any).pcb_PrimitiveFill.delete(batch);
-				deleted += batch.length;
-			}
-			catch (e) {
-				console.warn(TAG, 'Failed to delete batch:', e);
-			}
-
-			sendStatus({
-				type: 'progress',
-				message: `${msg('clearing')} (${deleted}/${fills.length})`,
-				progress: 10 + Math.round((deleted / fills.length) * 80),
-			});
+		const src = await (eda as any).sys_FileManager.getDocumentSource();
+		if (!src) {
+			sendStatus({ type: 'error', message: '无法获取文档源码' });
+			return;
 		}
 
-		// Clear the stored IDs
+		const fillIdSet = new Set(fills);
+		const lines = src.split('\n');
+		const filtered = lines.filter((line: string) => {
+			const idMatch = line.match(/"id":"([^"]+)"/);
+			if (idMatch && fillIdSet.has(idMatch[1]))
+				return false;
+			return true;
+		});
+
+		if (filtered.length === lines.length) {
+			_g.__bc_generated_fills = [];
+			sendStatus({ type: 'done', message: msg('clearDone') });
+			return;
+		}
+
+		const newSource = filtered.join('\n');
+		await (eda as any).sys_FileManager.setDocumentSource(newSource);
+
 		_g.__bc_generated_fills = [];
 
 		sendStatus({ type: 'done', message: msg('clearDone') });
@@ -228,47 +230,73 @@ async function handleGenerate(config: BalanceCopperConfig): Promise<void> {
 	_g.__bc_generated_fills = [];
 
 	try {
+		await (eda as any).pcb_Document.save();
+
 		const layers = await resolveTargetLayers(config.targetLayer);
 		console.warn(TAG, 'Target layers:', layers, 'Config:', JSON.stringify(config));
 
+		if (layers.length === 0) {
+			console.warn(TAG, 'No target layers resolved, aborting');
+			sendStatus({ type: 'error', message: '未找到目标层' });
+			return;
+		}
+
 		const { stepX, stepY } = getGridStep(config.pattern);
 		const patternBBox = getPatternBBox(config.pattern);
+		console.warn(TAG, 'Grid step:', stepX, 'x', stepY, 'Pattern bbox:', JSON.stringify(patternBBox));
+
+		// Parse document source once
+		sendStatus({ type: 'progress', message: '正在解析文档...', progress: 2 });
+		const parsed = await parseDocumentSource();
+		const { points: boardOutline, slotPolygons } = getBoardOutlineFromSource(parsed);
 
 		// Separate signal layers and mask layers
 		const signalLayers = layers.filter(id => SIGNAL_COPPER_LAYERS.includes(id));
 		const maskLayers = layers.filter(id => SOLDER_MASK_LAYERS.includes(id));
 
-		// Store blank points separately for top and bottom copper for mask layer reuse
-		const copperBlankPointsMap: Map<number, { x: number; y: number }[]> = new Map();
-
-		// Process signal layers in parallel
+		// Process all layers in parallel (mask layers use same points as corresponding copper)
 		sendStatus({
 			type: 'progress',
-			message: '正在处理信号层...',
+			message: '正在生成...',
 			progress: 5,
 		});
 
-		const signalLayerResults = await Promise.all(
-			signalLayers.map(async (layerId, li) => {
-				if (_g.__bc_cancelled)
-					return { layerId, count: 0, blankPoints: [] };
+		// Build tasks: signal layers + mask layers paired with their copper layer
+		interface LayerTask { layerId: number; copperLayerId: number; layerIndex: number }
+		const tasks: LayerTask[] = [];
+		for (let i = 0; i < signalLayers.length; i++) {
+			tasks.push({ layerId: signalLayers[i], copperLayerId: signalLayers[i], layerIndex: i });
+		}
+		for (const maskLayerId of maskLayers) {
+			const copperLayerId = maskLayerId === LAYER_TOP_SOLDER_MASK ? LAYER_TOP_COPPER : LAYER_BOTTOM_COPPER;
+			tasks.push({ layerId: maskLayerId, copperLayerId, layerIndex: signalLayers.indexOf(copperLayerId) });
+		}
 
-				const { points: boardOutline, slotPolygons } = await getBoardOutline();
+		// Cache blank points per copper layer to avoid recalculation
+		const blankPointsCache = new Map<string, Point[]>();
 
-				const obstacles = await collectObstacles(layerId);
+		// Process tasks sequentially (setDocumentSource cannot be called in parallel)
+		for (const task of tasks) {
+			if (_g.__bc_cancelled)
+				break;
 
-				// Add slot polygons as obstacles
+			const cacheKey = `${task.copperLayerId}_${task.layerIndex}`;
+			let blankPoints = blankPointsCache.get(cacheKey);
+
+			if (!blankPoints) {
+				const obstacles = getObstaclesForLayer(parsed, task.copperLayerId);
+				const allObstacles = [...obstacles];
 				for (const slotPts of slotPolygons) {
-					obstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'region' as const });
+					allObstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'fill' as const });
 				}
 
-				const layerOffset = config.pattern.layerStagger && (li % 2 === 1)
+				const layerOffset = config.pattern.layerStagger && (task.layerIndex % 2 === 1)
 					? { x: stepX / 2, y: stepY / 2 }
 					: undefined;
 
-				const blankPoints = await findBlankAreaPoints(
+				blankPoints = await findBlankAreaPoints(
 					boardOutline,
-					obstacles,
+					allObstacles,
 					stepX,
 					config.pattern.rotationAngle,
 					undefined,
@@ -278,92 +306,15 @@ async function handleGenerate(config: BalanceCopperConfig): Promise<void> {
 					patternBBox.width,
 					patternBBox.height,
 				);
-
-				// Store blank points from top/bottom copper for mask layer reuse
-				if (layerId === LAYER_TOP_COPPER || layerId === LAYER_BOTTOM_COPPER) {
-					copperBlankPointsMap.set(layerId, [...blankPoints]);
-				}
-
-				if (blankPoints.length === 0) {
-					return { layerId, count: 0, blankPoints };
-				}
-
-				const count = await generateBalanceCopper(layerId, blankPoints, config.pattern);
-				console.warn(TAG, `Layer ${layerId} created count:`, count);
-
-				return { layerId, count, blankPoints };
-			}),
-		);
-
-		// Report results
-		for (const result of signalLayerResults) {
-			if (result.count > 0) {
-				console.warn(TAG, `Layer ${result.layerId}: created ${result.count} patterns`);
+				blankPointsCache.set(cacheKey, blankPoints);
+				console.warn(TAG, `Layer ${task.copperLayerId}: blank points: ${blankPoints.length}`);
 			}
-		}
 
-		if (_g.__bc_cancelled) {
-			sendStatus({ type: 'done', message: '已停止生成' });
-			eda.sys_Message.showToastMessage(msg('stopped'));
-			return;
-		}
+			if (blankPoints.length === 0)
+				continue;
 
-		sendStatus({
-			type: 'progress',
-			message: '信号层处理完成',
-			progress: 70,
-		});
-
-		// Process mask layers in parallel
-		if (maskLayers.length > 0) {
-			sendStatus({
-				type: 'progress',
-				message: '正在处理阻焊层...',
-				progress: 75,
-			});
-
-			await Promise.all(
-				maskLayers.map(async (maskLayerId) => {
-					if (_g.__bc_cancelled)
-						return;
-
-					// Map mask layer to corresponding copper layer
-					const copperLayerId = maskLayerId === LAYER_TOP_SOLDER_MASK ? LAYER_TOP_COPPER : LAYER_BOTTOM_COPPER;
-
-					// Get blank points from corresponding copper layer
-					let maskBlankPoints = copperBlankPointsMap.get(copperLayerId);
-
-					// If not stored, recalculate
-					if (!maskBlankPoints || maskBlankPoints.length === 0) {
-						const { points: boardOutline, slotPolygons } = await getBoardOutline();
-						const obstacles = await collectObstacles(copperLayerId);
-
-						for (const slotPts of slotPolygons) {
-							obstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'region' as const });
-						}
-
-						// Mask layer should NOT have stagger offset - should overlap with copper
-						maskBlankPoints = await findBlankAreaPoints(
-							boardOutline,
-							obstacles,
-							stepX,
-							config.pattern.rotationAngle,
-							undefined,
-							config.pattern.stagger,
-							undefined,
-							stepY,
-							patternBBox.width,
-							patternBBox.height,
-						);
-					}
-
-					if (!maskBlankPoints || maskBlankPoints.length === 0)
-						return;
-
-					const count = await generateBalanceCopper(maskLayerId, maskBlankPoints, config.pattern);
-					console.warn(TAG, `Mask layer ${maskLayerId} created count:`, count);
-				}),
-			);
+			const count = await generateBalanceCopper(task.layerId, blankPoints, config.pattern);
+			console.warn(TAG, `Layer ${task.layerId} created:`, count);
 		}
 
 		if (_g.__bc_cancelled) {
@@ -380,6 +331,7 @@ async function handleGenerate(config: BalanceCopperConfig): Promise<void> {
 		}
 	}
 	catch (e) {
+		console.error(TAG, 'handleGenerate error:', e);
 		const errMsg = e instanceof Error ? e.message : String(e);
 		sendStatus({ type: 'error', message: errMsg });
 	}
@@ -392,6 +344,8 @@ async function handleAreaGenerate(config: BalanceCopperConfig): Promise<void> {
 	_g.__bc_generated_fills = [];
 
 	try {
+		await (eda as any).pcb_Document.save();
+
 		eda.sys_Message.showToastMessage(msg('clickFirst'));
 
 		const selectionBounds = await pollForSelection(30000);
@@ -407,6 +361,11 @@ async function handleAreaGenerate(config: BalanceCopperConfig): Promise<void> {
 		const layers = await resolveTargetLayers(config.targetLayer);
 		const { stepX, stepY } = getGridStep(config.pattern);
 		const patternBBox = getPatternBBox(config.pattern);
+
+		// Parse document source once
+		sendStatus({ type: 'progress', message: '正在解析文档...', progress: 8 });
+		const parsed = await parseDocumentSource();
+		const { points: boardOutline, slotPolygons } = getBoardOutlineFromSource(parsed);
 
 		// Separate signal layers and mask layers
 		const signalLayers = layers.filter(id => SIGNAL_COPPER_LAYERS.includes(id));
@@ -427,11 +386,10 @@ async function handleAreaGenerate(config: BalanceCopperConfig): Promise<void> {
 				if (_g.__bc_cancelled)
 					return { layerId, count: 0, blankPoints: [] };
 
-				const { points: boardOutline, slotPolygons } = await getBoardOutline();
-				const obstacles = await collectObstacles(layerId);
-
+				const obstacles = getObstaclesForLayer(parsed, layerId);
+				const allObstacles = [...obstacles];
 				for (const slotPts of slotPolygons) {
-					obstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'region' as const });
+					allObstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'fill' as const });
 				}
 
 				const layerOffset = config.pattern.layerStagger && (li % 2 === 1)
@@ -440,7 +398,7 @@ async function handleAreaGenerate(config: BalanceCopperConfig): Promise<void> {
 
 				const blankPoints = await findBlankAreaPoints(
 					boardOutline,
-					obstacles,
+					allObstacles,
 					stepX,
 					config.pattern.rotationAngle,
 					selectionBounds,
@@ -500,17 +458,15 @@ async function handleAreaGenerate(config: BalanceCopperConfig): Promise<void> {
 
 					// If not stored, recalculate
 					if (!maskBlankPoints || maskBlankPoints.length === 0) {
-						const { points: boardOutline, slotPolygons } = await getBoardOutline();
-						const obstacles = await collectObstacles(copperLayerId);
-
+						const obstacles = getObstaclesForLayer(parsed, copperLayerId);
+						const allObstacles = [...obstacles];
 						for (const slotPts of slotPolygons) {
-							obstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'region' as const });
+							allObstacles.push({ points: slotPts, bbox: calculateBoundingBox(slotPts), type: 'fill' as const });
 						}
 
-						// Mask layer should NOT have stagger offset - should overlap with copper
 						maskBlankPoints = await findBlankAreaPoints(
 							boardOutline,
-							obstacles,
+							allObstacles,
 							stepX,
 							config.pattern.rotationAngle,
 							selectionBounds,
@@ -630,7 +586,7 @@ async function resolveTargetLayers(target: TargetLayer): Promise<number[]> {
 			else {
 				layerId = LAYER_TOP_COPPER;
 			}
-			if (!Number.isFinite(layerId) || !ALL_COPPER_LAYERS.includes(layerId)) {
+			if (!Number.isFinite(layerId) || (!ALL_COPPER_LAYERS.includes(layerId) && !SOLDER_MASK_LAYERS.includes(layerId))) {
 				layerId = LAYER_TOP_COPPER;
 			}
 			return [layerId];
