@@ -6,6 +6,10 @@ EasyEDA Pro extension — Automatically fills blank areas on PCB layers with non
 
 ![alt text](images/gif1.gif)
 
+| PCB | 2D |
+| --- | --- |
+|  ![alt text](images/image1.png) | ![alt text](images/image.png)  |
+
 ## Features
 
 ### Supported Pattern Types

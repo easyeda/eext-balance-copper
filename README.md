@@ -6,6 +6,10 @@
 
 ![alt text](images/gif1.gif)
 
+| PCB画布 | 2D预览 |
+| --- | --- |
+|  ![alt text](images/image1.png) | ![alt text](images/image.png)  |
+
 ## 功能特性
 
 ### 支持的图案类型
