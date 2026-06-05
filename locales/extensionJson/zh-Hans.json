@@ -1,5 +1,10 @@
 {
 	"About...": "关于...",
 	"平衡铜绘制...": "平衡铜绘制...",
-	"平衡铜工具": "平衡铜工具"
+	"平衡铜工具": "平衡铜工具",
+	"在PCB空白区域自动生成平衡铜图案，提高PCB制造良率": "在PCB空白区域自动生成平衡铜图案，提高PCB制造良率",
+	"平衡铜": "平衡铜",
+	"copper balancing": "copper balancing",
+	"copper thieving": "copper thieving",
+	"PCB": "PCB"
 }

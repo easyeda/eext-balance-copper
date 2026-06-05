@@ -1,5 +1,10 @@
 {
 	"About...": "About...",
 	"平衡铜绘制...": "Balance Copper...",
-	"平衡铜工具": "Balance Copper Tool"
+	"平衡铜工具": "Balance Copper Tool",
+	"在PCB空白区域自动生成平衡铜图案，提高PCB制造良率": "Automatically generate balance copper patterns in blank PCB areas to improve manufacturing yield",
+	"平衡铜": "copper balancing",
+	"copper balancing": "copper balancing",
+	"copper thieving": "copper thieving",
+	"PCB": "PCB"
 }

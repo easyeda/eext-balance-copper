@@ -147,12 +147,12 @@
 </head>
 <body>
 	<div class="section">
-		<div class="section-title" data-i18n="patternType"></div>
+		<div class="section-title" data-i18n="Pattern Type"></div>
 		<div class="radio-group" id="shapeGroup"></div>
 	</div>
 
 	<div class="section">
-		<div class="section-title" data-i18n="patternParams"></div>
+		<div class="section-title" data-i18n="Pattern Parameters"></div>
 		<div class="row">
 			<label id="sizeLabel"></label>
 			<input type="text" id="patternSize" value="40" />
@@ -176,29 +176,29 @@
 	</div>
 
 	<div class="section">
-		<div class="section-title" data-i18n="operationOptions"></div>
+		<div class="section-title" data-i18n="Operation Options"></div>
 		<div class="checkbox-row">
-			<label><input type="checkbox" id="stagger" /> <span data-i18n="stagger"></span></label>
-			<label><input type="checkbox" id="layerStagger" /> <span data-i18n="layerStagger"></span></label>
-			<label><input type="checkbox" id="autoDrc" /> <span data-i18n="autoDrc"></span></label>
+			<label><input type="checkbox" id="stagger" /> <span data-i18n="Stagger"></span></label>
+			<label><input type="checkbox" id="layerStagger" /> <span data-i18n="Layer Stagger"></span></label>
+			<label><input type="checkbox" id="autoDrc" /> <span data-i18n="Auto DRC"></span></label>
 		</div>
 	</div>
 
 	<div class="section">
-		<div class="section-title" data-i18n="targetLayer"></div>
+		<div class="section-title" data-i18n="Target Layer"></div>
 		<div class="radio-group" id="layerGroup"></div>
 	</div>
 
 		<div class="bottom-bar">
 			<div class="btn-row" id="actionButtons">
-				<button class="btn btn-primary" id="btnGenerate" data-i18n="generate"></button>
-				<button class="btn btn-secondary" id="btnAreaGenerate" data-i18n="areaGenerate"></button>
+				<button class="btn btn-primary" id="btnGenerate" data-i18n="Generate"></button>
+				<button class="btn btn-secondary" id="btnAreaGenerate" data-i18n="Area Generate"></button>
 			</div>
 			<div class="btn-row" id="clearRow">
-				<button class="btn btn-danger" id="btnClear" data-i18n="clear"></button>
+				<button class="btn btn-danger" id="btnClear" data-i18n="Clear All"></button>
 			</div>
 			<div class="btn-row" id="stopRow" style="display:none;">
-				<button class="btn btn-stop" id="btnStop" data-i18n="stop"></button>
+				<button class="btn btn-stop" id="btnStop" data-i18n="Stop"></button>
 			</div>
 			<div class="progress-bar"><div class="progress-bar-fill" id="progressBar"></div></div>
 		</div>
@@ -207,146 +207,76 @@
 	(function() {
 		'use strict';
 
-		var i18n = {
-			'zh-Hans': {
-				patternType: '图案类型',
-				patternParams: '图案参数',
-				operationOptions: '操作选项',
-				targetLayer: '操作范围',
-				generate: '一键生成',
-				areaGenerate: '按点击区域生成',
-				clear: '一键清除',
-				stop: '停止生成',
-				stagger: '交叉分布',
-				layerStagger: '邻层交错',
-				shapes: [
-					['dot', '圆形'], ['square', '正方形'], ['rectangle', '矩形'],
-					['diamond', '菱形'], ['oval', '长圆形'], ['triangle', '三角形'],
-					['pentagon', '五边形'], ['hexagon', '六边形'], ['trapezoid', '梯形']
-				],
-				layers: [
-					['current', '仅当前层'], ['allSignal', '所有信号层'],
-					['allMask', '所有阻焊层'], ['allSignalAndMask', '信号层+阻焊层']
-				],
-				diameter: '直径', size: '尺寸', width: '宽度', height: '高度',
-				base: '底边', sideLength: '边长',
-				horizDiag: '水平对角线', vertDiag: '垂直对角线',
-				spacing: '左右间距', spacing2: '上下间距',
-				rotation: '旋转角度 (度)',
-				deg: '度',
-				errSpacingNeg: '间距不能为负数',
-				errSizeMin: '图案尺寸不能小于10mil',
-				errComm: '通信失败: ',
-				stopping: '正在停止...',
-				errPrefix: '错误: ',
-				done: '完成',
-				clickFirst: '请点击第一个点确定区域起点',
-				clickSecond: '请点击第二个点确定区域对角',
-				areaDetected: '已检测到框选区域，正在处理...',
-				areaFailed: '未检测到框选区域，请重试',
-				areaDone: '区域平衡铜生成完成',
-				genDone: '平衡铜生成完成',
-				stopped: '已停止生成',
-				autoDrc: '自动DRC',
-				drcRunning: '正在运行DRC检查...',
-				drcPassed: 'DRC检查通过',
-				drcFailed: 'DRC检查发现错误',
-				clearing: '正在清除...',
-				clearDone: '已清除所有生成的平衡铜',
-				noFillToClear: '没有可清除的平衡铜',
-			},
-			'en': {
-				patternType: 'Pattern Type',
-				patternParams: 'Pattern Parameters',
-				operationOptions: 'Options',
-				targetLayer: 'Target Layer',
-				generate: 'Generate',
-				areaGenerate: 'Area by Click',
-				clear: 'Clear All',
-				stop: 'Stop',
-				stagger: 'Stagger',
-				layerStagger: 'Layer Stagger',
-				shapes: [
-					['dot', 'Circle'], ['square', 'Square'], ['rectangle', 'Rectangle'],
-					['diamond', 'Diamond'], ['oval', 'Oval'], ['triangle', 'Triangle'],
-					['pentagon', 'Pentagon'], ['hexagon', 'Hexagon'], ['trapezoid', 'Trapezoid']
-				],
-				layers: [
-					['current', 'Current Layer'], ['allSignal', 'All Signal Layers'],
-					['allMask', 'All Solder Mask'], ['allSignalAndMask', 'Signal + Mask']
-				],
-				diameter: 'Diameter', size: 'Size', width: 'Width', height: 'Height',
-				base: 'Base', sideLength: 'Side Length',
-				horizDiag: 'Horiz. Diagonal', vertDiag: 'Vert. Diagonal',
-				spacing: 'H-Spacing', spacing2: 'V-Spacing',
-				rotation: 'Rotation Angle (deg)',
-				deg: 'deg',
-				errSpacingNeg: 'Spacing cannot be negative',
-				errSizeMin: 'Pattern size cannot be less than 10mil',
-				errComm: 'Communication failed: ',
-				stopping: 'Stopping...',
-				errPrefix: 'Error: ',
-				done: 'Done',
-				clickFirst: 'Click the first point as area start',
-				clickSecond: 'Click the second point as area corner',
-				areaDetected: 'Area detected, processing...',
-				areaFailed: 'No area detected, please try again',
-				areaDone: 'Area balance copper generation complete',
-				genDone: 'Balance copper generation complete',
-				stopped: 'Generation stopped',
-				autoDrc: 'Auto DRC',
-				drcRunning: 'Running DRC check...',
-				drcPassed: 'DRC check passed',
-				drcFailed: 'DRC check found errors',
-				clearing: 'Clearing...',
-				clearDone: 'All generated balance copper cleared',
-				noFillToClear: 'No balance copper to clear',
-			}
-		};
-
-		var lang = 'zh-Hans';
-		try {
-			if (window.parent.__bc_lang) {
-				lang = window.parent.__bc_lang;
-			}
-		} catch(e) {}
-
-		if (!i18n[lang]) lang = 'zh-Hans';
-		var t = i18n[lang];
-			try { window.parent.__bc_msg = { clickFirst: t.clickFirst, clickSecond: t.clickSecond, areaDetected: t.areaDetected, areaFailed: t.areaFailed, areaDone: t.areaDone, genDone: t.genDone, stopped: t.stopped, drcRunning: t.drcRunning, drcPassed: t.drcPassed, drcFailed: t.drcFailed, clearing: t.clearing, clearDone: t.clearDone, noFillToClear: t.noFillToClear }; } catch(e) {}
+		var edaObj = (typeof eda !== 'undefined') ? eda : (window.parent && window.parent.eda);
+		function t(tag) {
+			if (edaObj && edaObj.sys_I18n) return edaObj.sys_I18n.text(tag);
+			return tag;
+		}
 
 		// Apply data-i18n
 		var els = document.querySelectorAll('[data-i18n]');
 		for (var i = 0; i < els.length; i++) {
 			var key = els[i].getAttribute('data-i18n');
-			if (t[key]) els[i].textContent = t[key];
+			els[i].textContent = t(key);
 		}
+
+		// Shape data: [value, i18n tag]
+		var shapes = [
+			['dot', 'Dot'], ['square', 'Square'], ['rectangle', 'Rectangle'],
+			['diamond', 'Diamond'], ['oval', 'Oval'], ['triangle', 'Triangle'],
+			['pentagon', 'Pentagon'], ['hexagon', 'Hexagon'], ['trapezoid', 'Trapezoid']
+		];
+
+		// Layer data: [value, i18n tag]
+		var layers = [
+			['current', 'Current Layer Only'], ['allSignal', 'All Signal Layers'],
+			['allMask', 'All Solder Mask Layers'], ['allSignalAndMask', 'All Signal + Mask Layers']
+		];
 
 		// Build shape radio buttons
 		var shapeGroup = document.getElementById('shapeGroup');
-		for (var i = 0; i < t.shapes.length; i++) {
-			var s = t.shapes[i];
+		for (var i = 0; i < shapes.length; i++) {
+			var s = shapes[i];
 			var lbl = document.createElement('label');
 			var inp = document.createElement('input');
 			inp.type = 'radio'; inp.name = 'patternType'; inp.value = s[0];
 			if (i === 0) inp.checked = true;
 			lbl.appendChild(inp);
-			lbl.appendChild(document.createTextNode(' ' + s[1]));
+			lbl.appendChild(document.createTextNode(' ' + t(s[1])));
 			shapeGroup.appendChild(lbl);
 		}
 
 		// Build layer radio buttons
 		var layerGroup = document.getElementById('layerGroup');
-		for (var i = 0; i < t.layers.length; i++) {
-			var l = t.layers[i];
+		for (var i = 0; i < layers.length; i++) {
+			var l = layers[i];
 			var lbl = document.createElement('label');
 			var inp = document.createElement('input');
 			inp.type = 'radio'; inp.name = 'targetLayer'; inp.value = l[0];
 			if (i === 0) inp.checked = true;
 			lbl.appendChild(inp);
-			lbl.appendChild(document.createTextNode(' ' + l[1]));
+			lbl.appendChild(document.createTextNode(' ' + t(l[1])));
 			layerGroup.appendChild(lbl);
 		}
+
+		// Set translated messages on parent window for main extension to use
+		try {
+			window.parent.__bc_msg = {
+				clickFirst: t('Click first point'),
+				clickSecond: t('Click second point'),
+				areaDetected: t('Area detected'),
+				areaFailed: t('No area detected'),
+				areaDone: t('Area balance copper generation complete'),
+				genDone: t('Balance copper generation complete'),
+				stopped: t('Generation stopped'),
+				drcRunning: t('Running DRC check'),
+				drcPassed: t('DRC check passed'),
+				drcFailed: t('DRC check found errors'),
+				clearing: t('Clearing'),
+				clearDone: t('All generated balance copper cleared'),
+				noFillToClear: t('No balance copper to clear')
+			};
+		} catch(e) {}
 
 		// Unit detection
 		var currentUnit = 'mil';
@@ -420,37 +350,37 @@
 			var size2Label = document.getElementById('size2Label');
 
 			if (type === 'dot') {
-				label.innerHTML = t.diameter + ' (' + u + ')';
+				label.innerHTML = t('Diameter') + ' (' + u + ')';
 				size2Row.style.display = 'none';
 			} else if (type === 'rectangle' || type === 'oval') {
-				label.innerHTML = t.width + ' (' + u + ')';
-				size2Label.innerHTML = t.height + ' (' + u + ')';
+				label.innerHTML = t('Width') + ' (' + u + ')';
+				size2Label.innerHTML = t('Height') + ' (' + u + ')';
 				size2Row.style.display = 'flex';
 			} else if (type === 'diamond') {
-				label.innerHTML = t.horizDiag + ' (' + u + ')';
-				size2Label.innerHTML = t.vertDiag + ' (' + u + ')';
+				label.innerHTML = t('Horizontal Diagonal') + ' (' + u + ')';
+				size2Label.innerHTML = t('Vertical Diagonal') + ' (' + u + ')';
 				size2Row.style.display = 'flex';
 			} else if (type === 'triangle') {
-				label.innerHTML = t.base + ' (' + u + ')';
-				size2Label.innerHTML = t.height + ' (' + u + ')';
+				label.innerHTML = t('Base') + ' (' + u + ')';
+				size2Label.innerHTML = t('Height') + ' (' + u + ')';
 				size2Row.style.display = 'flex';
 			} else if (type === 'trapezoid') {
-				label.innerHTML = t.base + ' (' + u + ')';
-				size2Label.innerHTML = t.height + ' (' + u + ')';
+				label.innerHTML = t('Base') + ' (' + u + ')';
+				size2Label.innerHTML = t('Height') + ' (' + u + ')';
 				size2Row.style.display = 'flex';
 			} else if (type === 'pentagon' || type === 'hexagon') {
-				label.innerHTML = t.sideLength + ' (' + u + ')';
+				label.innerHTML = t('Side Length') + ' (' + u + ')';
 				size2Row.style.display = 'none';
 			} else {
-				label.innerHTML = t.size + ' (' + u + ')';
+				label.innerHTML = t('Size') + ' (' + u + ')';
 				size2Row.style.display = 'none';
 			}
 		}
 
 		// Set static labels
-		document.getElementById('spacingLabel').innerHTML = t.spacing + ' (' + u + ')';
-		document.getElementById('spacing2Label').innerHTML = t.spacing2 + ' (' + u + ')';
-		document.getElementById('rotationLabel').textContent = t.rotation;
+		document.getElementById('spacingLabel').innerHTML = t('H-Spacing') + ' (' + u + ')';
+		document.getElementById('spacing2Label').innerHTML = t('V-Spacing') + ' (' + u + ')';
+		document.getElementById('rotationLabel').textContent = t('Rotation Angle (deg)');
 
 		// Listen for shape changes
 		var radios = document.getElementsByName('patternType');
@@ -479,11 +409,11 @@
 
 		function validateConfig(config) {
 			if (config.pattern.patternSpacing < 0) {
-				try { window.parent.__bc_status = { type: 'error', message: t.errSpacingNeg }; } catch(e) {}
+				try { window.parent.__bc_status = { type: 'error', message: t('Spacing cannot be negative') }; } catch(e) {}
 				return false;
 			}
 			if (config.pattern.patternSize < 10) {
-				try { window.parent.__bc_status = { type: 'error', message: t.errSizeMin }; } catch(e) {}
+				try { window.parent.__bc_status = { type: 'error', message: t('Pattern size cannot be less than 10mil') }; } catch(e) {}
 				return false;
 			}
 			return true;
@@ -516,7 +446,7 @@
 			setGenerating(true);
 			setProgress(0);
 			try { window.parent.__bc_cmd = { type: 'generate', config: config }; }
-			catch(e) { showToast(t.errComm + e.message); setGenerating(false); }
+			catch(e) { showToast(t('Communication failed') + e.message); setGenerating(false); }
 		});
 
 		document.getElementById('btnAreaGenerate').addEventListener('click', function() {
@@ -525,18 +455,18 @@
 			setGenerating(true);
 			setProgress(0);
 			try { window.parent.__bc_cmd = { type: 'areaGenerate', config: config }; }
-			catch(e) { showToast(t.errComm + e.message); setGenerating(false); }
+			catch(e) { showToast(t('Communication failed') + e.message); setGenerating(false); }
 		});
 
 		document.getElementById('btnStop').addEventListener('click', function() {
-			try { window.parent.__bc_cmd = { type: 'cancel' }; showToast(t.stopping); } catch(e) {}
+			try { window.parent.__bc_cmd = { type: 'cancel' }; showToast(t('Stopping')); } catch(e) {}
 		});
 
 		document.getElementById('btnClear').addEventListener('click', function() {
 			setGenerating(true);
 			setProgress(0);
 			try { window.parent.__bc_cmd = { type: 'clear' }; }
-			catch(e) { showToast(t.errComm + e.message); setGenerating(false); }
+			catch(e) { showToast(t('Communication failed') + e.message); setGenerating(false); }
 		});
 
 		setInterval(function() {
@@ -548,11 +478,11 @@
 					if (typeof s.progress === 'number') setProgress(s.progress);
 					if (s.message) showToast(s.message);
 				} else if (s.type === 'done') {
-					showToast(s.message || t.done);
+					showToast(s.message || t('Done'));
 					setProgress(100);
 					setGenerating(false);
 				} else if (s.type === 'error') {
-					showToast(t.errPrefix + s.message);
+					showToast(t('Error prefix') + s.message);
 					setGenerating(false);
 				}
 			} catch(e) {}
