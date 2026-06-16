@@ -147,12 +147,12 @@
 </head>
 <body>
 	<div class="section">
-		<div class="section-title" data-i18n="Pattern Type"></div>
+		<div class="section-title" data-i18n="Pattern Type">图案类型</div>
 		<div class="radio-group" id="shapeGroup"></div>
 	</div>
 
 	<div class="section">
-		<div class="section-title" data-i18n="Pattern Parameters"></div>
+		<div class="section-title" data-i18n="Pattern Parameters">图案参数</div>
 		<div class="row">
 			<label id="sizeLabel"></label>
 			<input type="text" id="patternSize" value="40" />
@@ -176,29 +176,29 @@
 	</div>
 
 	<div class="section">
-		<div class="section-title" data-i18n="Operation Options"></div>
+		<div class="section-title" data-i18n="Operation Options">操作选项</div>
 		<div class="checkbox-row">
-			<label><input type="checkbox" id="stagger" /> <span data-i18n="Stagger"></span></label>
-			<label><input type="checkbox" id="layerStagger" /> <span data-i18n="Layer Stagger"></span></label>
-			<label><input type="checkbox" id="autoDrc" /> <span data-i18n="Auto DRC"></span></label>
+			<label><input type="checkbox" id="stagger" /> <span data-i18n="Stagger">交叉分布</span></label>
+			<label><input type="checkbox" id="layerStagger" /> <span data-i18n="Layer Stagger">邻层交错</span></label>
+			<label><input type="checkbox" id="autoDrc" /> <span data-i18n="Auto DRC">自动DRC</span></label>
 		</div>
 	</div>
 
 	<div class="section">
-		<div class="section-title" data-i18n="Target Layer"></div>
+		<div class="section-title" data-i18n="Target Layer">操作范围</div>
 		<div class="radio-group" id="layerGroup"></div>
 	</div>
 
 		<div class="bottom-bar">
 			<div class="btn-row" id="actionButtons">
-				<button class="btn btn-primary" id="btnGenerate" data-i18n="Generate"></button>
-				<button class="btn btn-secondary" id="btnAreaGenerate" data-i18n="Area Generate"></button>
+				<button class="btn btn-primary" id="btnGenerate" data-i18n="Generate">一键生成</button>
+				<button class="btn btn-secondary" id="btnAreaGenerate" data-i18n="Area Generate">按点击区域生成</button>
 			</div>
 			<div class="btn-row" id="clearRow">
-				<button class="btn btn-danger" id="btnClear" data-i18n="Clear All"></button>
+				<button class="btn btn-danger" id="btnClear" data-i18n="Clear All">一键清除</button>
 			</div>
 			<div class="btn-row" id="stopRow" style="display:none;">
-				<button class="btn btn-stop" id="btnStop" data-i18n="Stop"></button>
+				<button class="btn btn-stop" id="btnStop" data-i18n="Stop">停止生成</button>
 			</div>
 			<div class="progress-bar"><div class="progress-bar-fill" id="progressBar"></div></div>
 		</div>
